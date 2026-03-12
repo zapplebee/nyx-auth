@@ -68,6 +68,7 @@ async function issueAuthCode(params: {
   const { privateKey, kid } = await getKeys();
   return new SignJWT({ ...params, type: "auth_code" })
     .setProtectedHeader({ alg: "ES256", kid })
+    .setIssuer(issuer)
     .setIssuedAt()
     .setExpirationTime("2m")
     .sign(privateKey);
