@@ -14,9 +14,14 @@ secrets:
 # throughout all steps. Uses a fixed CI-only secret and pre-encrypted
 # client config so no runtime secret generation is needed.
 services:
+  # nyx-auth service — override entrypoint so shell commands run correctly
+  # (oven/bun image has ENTRYPOINT ["bun"] which would consume our commands)
   - name: nyx-auth
     image: oven/bun:1.3.5
     pull: always
+    entrypoint:
+      - /bin/sh
+      - -c
     environment:
       BETTER_AUTH_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       BETTER_AUTH_URL: http://nyx-auth:3000
@@ -24,36 +29,36 @@ services:
       CLIENTS_CONFIG: ./clients.ci.yml
       PORT: "3000"
     commands:
-      # Services start before the clone step — wait for the workspace to be ready
-      - until [ -f package.json ]; do sleep 1; done
-      - bun install --frozen-lockfile
-      - echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts
-      - bun src/index.ts
+      # Single string so /bin/sh -c receives exactly one argument
+      - "until [ -f package.json ]; do sleep 1; done && bun install --frozen-lockfile && echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts && bun src/index.ts"
 
   # Vite dev server for the oidc-client-ts test page
+  # node image also has a wrapper entrypoint — override it the same way
   - name: test-app
     image: node:20-alpine
     pull: always
+    entrypoint:
+      - /bin/sh
+      - -c
     environment:
       VITE_AUTH_URL: http://nyx-auth:3000
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
     commands:
-      # Wait for the clone step to populate the workspace
-      - until [ -d test-app ]; do sleep 1; done
-      - cd test-app && npm install && npx vite --host 0.0.0.0 --port 5173
+      - "until [ -d test-app ]; do sleep 1; done && cd test-app && npm install && npx vite --host 0.0.0.0 --port 5173"
 
 steps:
-  # Wait for both services to accept connections before running tests
+  # Wait for both services to accept connections before running tests.
+  # Exits non-zero if either service never becomes ready.
   - name: wait-for-services
     image: alpine:latest
     pull: always
     commands:
       - apk add --no-cache curl
       - echo "Waiting for nyx-auth..."
-      - for i in $(seq 1 60); do curl -sf http://nyx-auth:3000/ && break || sleep 2; done
+      - for i in $(seq 1 90); do curl -sf http://nyx-auth:3000/ && echo "nyx-auth ready" && break; [ $i -eq 90 ] && echo "nyx-auth never ready" && exit 1; sleep 2; done
       - echo "Waiting for test-app..."
-      - for i in $(seq 1 60); do curl -sf http://test-app:5173/ && break || sleep 2; done
+      - for i in $(seq 1 90); do curl -sf http://test-app:5173/ && echo "test-app ready" && break; [ $i -eq 90 ] && echo "test-app never ready" && exit 1; sleep 2; done
 
   - name: cypress
     image: cypress/included:latest
