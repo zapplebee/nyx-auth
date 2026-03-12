@@ -1,1 +1,3 @@
-node_modules/\ndata/\n.env
+node_modules/
+data/
+.env
