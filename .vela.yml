@@ -23,7 +23,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile --ignore-scripts && echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts && bun src/index.ts"
+      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile --ignore-scripts && echo y | bun node_modules/.bin/better-auth migrate --config src/auth.ts && bun src/index.ts"
     environment:
       BETTER_AUTH_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       BETTER_AUTH_URL: http://nyx-auth:3000
