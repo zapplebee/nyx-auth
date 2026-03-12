@@ -49,12 +49,12 @@ services:
       VITE_REDIRECT_URI: http://test-app:5173/callback
 
   - name: cookie-test-app
-    image: node:20-alpine
+    image: oven/bun:1.3.5
     pull: always
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -d ${VELA_WORKSPACE}/cookie-test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/cookie-test-app && npm install --omit=dev && node server.js"
+      - "until [ -d ${VELA_WORKSPACE}/cookie-test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/cookie-test-app && bun install --frozen-lockfile --production && bun server.js"
     environment:
       AUTH_URL: http://nyx-auth:3000
       CLIENT_ID: ci-cookie-test
@@ -103,7 +103,7 @@ steps:
       CYPRESS_CI_PASSWORD: TestPass1234!
       CYPRESS_CI_OTP_SECRET: 5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M
     commands:
-      - cd cookie-test-app && npm install && cypress run --browser chrome
+      - cd cookie-test-app && npm install --ignore-scripts && cypress run --browser chrome
 
   - name: upload-artifacts
     image: alpine:latest
