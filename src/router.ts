@@ -21,10 +21,22 @@ import {
 } from "./tokens";
 import { loginHtml, consentHtml } from "./pages";
 
+// Dummy password used when the requested email does not exist, so the
+// verifyPassword call always runs and doesn't short-circuit on missing users.
+const DUMMY_PASSWORD = "nyx-dummy-password-placeholder-never-matches";
+
+export interface AppOptions {
+  /** Milliseconds to delay before returning a 401. Default: 1000. */
+  failedLoginDelayMs?: number;
+}
+
 export function createApp(
   clients: Map<string, ClientConfig>,
-  users: Map<string, UserConfig>
+  users: Map<string, UserConfig>,
+  options: AppOptions = {}
 ): Hono {
+  const failedLoginDelayMs = options.failedLoginDelayMs ?? 1000;
+
   const trustedOrigins = (process.env.TRUSTED_ORIGINS ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -140,7 +152,14 @@ export function createApp(
     const { email, password } = await c.req.json<{ email: string; password: string }>();
 
     const user = users.get(email.toLowerCase());
-    if (!user || !verifyPassword(user.password, password)) {
+    // Always run verifyPassword even for unknown emails to prevent user-enumeration
+    // via timing differences. Use a dummy stored value when the user is not found.
+    const storedPassword = user?.password ?? DUMMY_PASSWORD;
+    const passwordOk = verifyPassword(storedPassword, password);
+    const ok = user !== undefined && passwordOk;
+
+    if (!ok) {
+      await new Promise((resolve) => setTimeout(resolve, failedLoginDelayMs));
       return c.json({ error: "Invalid email or password." }, 401);
     }
 

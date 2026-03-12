@@ -58,6 +58,21 @@ describe("nyx-auth pipeline smoke tests", () => {
   //
   // Requires Chrome with --unsafely-treat-insecure-origin-as-secure=http://test-app:5173
   // (set via before:browser:launch in cypress.config.js) so Crypto.subtle works on HTTP.
+  it("failed login attempt is delayed by at least 1 second", () => {
+    const start = Date.now();
+    cy.request({
+      method: "POST",
+      url: AUTH_URL + "/api/auth/login",
+      headers: { "Content-Type": "application/json" },
+      body: { email: "notauser@example.com", password: "wrongpassword" },
+      failOnStatusCode: false,
+    }).then((response) => {
+      const elapsed = Date.now() - start;
+      expect(response.status).to.eq(401);
+      expect(elapsed).to.be.greaterThan(1000);
+    });
+  });
+
   it("full OIDC login flow via login page", () => {
     cy.visit("/");
     cy.get("#loginBtn").should("be.visible").click();
