@@ -269,3 +269,78 @@ describe("safeEqual", () => {
     expect(safeEqual("", "")).toBe(true);
   });
 });
+
+// ── Custom claims ─────────────────────────────────────────────────────────────
+
+const userWithClaims: UserConfig = {
+  email: "carol@example.com",
+  name: "Carol",
+  password: "irrelevant",
+  clients: [{ clientId: "my-app", roles: ["user"] }],
+  claims: {
+    oid: "00000000-0000-0000-0000-000000000001",
+    tid: "tenant-abc",
+    given_name: "Carol",
+    family_name: "Smith",
+    groups: ["group-a", "group-b"],
+    nested: { level: 1 },
+  },
+};
+
+describe("custom claims in ID token", () => {
+  it("includes custom claims in the ID token payload", async () => {
+    const token = await issueIdToken(userWithClaims, testClient);
+    const payload = unsafeDecodePayload(token);
+
+    expect(payload.oid).toBe("00000000-0000-0000-0000-000000000001");
+    expect(payload.tid).toBe("tenant-abc");
+    expect(payload.given_name).toBe("Carol");
+    expect(payload.family_name).toBe("Smith");
+    expect(payload.groups).toEqual(["group-a", "group-b"]);
+    expect(payload.nested).toEqual({ level: 1 });
+  });
+
+  it("standard claims override any matching custom claim", async () => {
+    const userTryingToSpoof: UserConfig = {
+      ...userWithClaims,
+      claims: { sub: "evil@attacker.com", email: "evil@attacker.com", iss: "https://evil.com" },
+    };
+    const token = await issueIdToken(userTryingToSpoof, testClient);
+    const payload = unsafeDecodePayload(token);
+
+    expect(payload.sub).toBe("carol@example.com");
+    expect(payload.email).toBe("carol@example.com");
+    // iss is set by jose's .setIssuer() which overrides the payload field
+    expect(payload.iss).toBe(TEST_ISSUER);
+  });
+
+  it("works correctly when no custom claims are defined", async () => {
+    const token = await issueIdToken(testUser, testClient);
+    const payload = unsafeDecodePayload(token);
+    expect(payload.sub).toBe("alice@example.com");
+    expect(payload.email).toBe("alice@example.com");
+  });
+});
+
+describe("custom claims in access token", () => {
+  it("includes custom claims in the access token payload", async () => {
+    const token = await issueAccessToken(userWithClaims, testClient, "openid profile");
+    const payload = unsafeDecodePayload(token);
+
+    expect(payload.oid).toBe("00000000-0000-0000-0000-000000000001");
+    expect(payload.tid).toBe("tenant-abc");
+    expect(payload.groups).toEqual(["group-a", "group-b"]);
+  });
+
+  it("standard claims override any matching custom claim", async () => {
+    const userTryingToSpoof: UserConfig = {
+      ...userWithClaims,
+      claims: { sub: "evil@attacker.com", scope: "admin superpower" },
+    };
+    const token = await issueAccessToken(userTryingToSpoof, testClient, "openid");
+    const payload = unsafeDecodePayload(token);
+
+    expect(payload.sub).toBe("carol@example.com");
+    expect(payload.scope).toBe("openid");
+  });
+});

@@ -137,6 +137,8 @@ export async function issueIdToken(
   const { privateKey, kid } = await getKeys();
   const roles = rolesForClient(user, client.clientId);
   return new SignJWT({
+    // Custom claims first — standard claims below always take precedence.
+    ...(user.claims ?? {}),
     sub: user.email,
     email: user.email,
     name: user.name,
@@ -162,7 +164,13 @@ export async function issueAccessToken(
 ): Promise<string> {
   const { privateKey, kid } = await getKeys();
   const roles = rolesForClient(user, client.clientId);
-  return new SignJWT({ sub: user.email, scope, roles })
+  return new SignJWT({
+    // Custom claims first — standard claims below always take precedence.
+    ...(user.claims ?? {}),
+    sub: user.email,
+    scope,
+    roles,
+  })
     .setProtectedHeader({ alg: "ES256", kid })
     .setIssuer(getIssuer())
     .setAudience(getIssuer())
