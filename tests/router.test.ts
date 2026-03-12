@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { generate as totpGenerate } from "otplib";
 import { createApp } from "../src/router";
 import { resetKeysForTest } from "../src/keys";
-import { unsafeDecodePayload } from "../src/tokens";
+import { unsafeDecodePayload, issueRefreshToken } from "../src/tokens";
 import type { ClientConfig } from "../src/clients";
 import type { UserConfig } from "../src/users";
 import { OTP_OUT } from "../src/users";
@@ -50,9 +50,19 @@ const publicClient: ClientConfig = {
   redirectURLs: ["https://app.example.com/callback"],
 };
 
+const webClient: ClientConfig = {
+  name: "My App",
+  clientId: "my-app",
+  clientSecret: "app-secret",
+  type: "web",
+  redirectURLs: ["https://app.example.com/callback"],
+  skipConsent: true,
+};
+
 const testClients = new Map<string, ClientConfig>([
   ["my-service", machineClient],
   ["my-spa", publicClient],
+  ["my-app", webClient],
 ]);
 
 beforeEach(() => {
@@ -315,5 +325,228 @@ describe("client_credentials grant", () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("unsupported_grant_type");
+  });
+});
+
+// ── Helpers for auth code flow ────────────────────────────────────────────────
+
+async function getSessionCookie(app: ReturnType<typeof createApp>, email: string, password: string): Promise<string> {
+  const res = await loginRequest(app, { email, password });
+  return res.headers.get("set-cookie") ?? "";
+}
+
+async function getAuthCode(
+  app: ReturnType<typeof createApp>,
+  sessionCookie: string,
+  params: Record<string, string>
+): Promise<string> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await app.request(`/api/auth/oauth2/authorize?${qs}`, {
+    headers: { Cookie: sessionCookie },
+  });
+  const location = res.headers.get("Location") ?? "";
+  const url = new URL(location);
+  return url.searchParams.get("code") ?? "";
+}
+
+// ── Refresh token grant ───────────────────────────────────────────────────────
+
+describe("refresh_token grant", () => {
+  it("authorization_code with offline_access includes a refresh_token", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid offline_access",
+    });
+
+    const res = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(typeof body.refresh_token).toBe("string");
+
+    const rtPayload = unsafeDecodePayload(body.refresh_token);
+    expect(rtPayload.type).toBe("refresh_token");
+    expect(rtPayload.sub).toBe("bob@example.com");
+    expect(rtPayload.client_id).toBe("my-app");
+  });
+
+  it("authorization_code without offline_access does not include refresh_token", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile",
+    });
+
+    const res = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.refresh_token).toBeUndefined();
+  });
+
+  it("refresh_token grant issues new access_token, id_token, and rotated refresh_token", async () => {
+    const app = createApp(testClients, testUsers);
+    const rt = await issueRefreshToken(userOptOut, webClient, "openid offline_access");
+
+    const res = await tokenRequest(app, {
+      grant_type: "refresh_token",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      refresh_token: rt,
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.token_type).toBe("Bearer");
+    expect(body.expires_in).toBe(3600);
+    expect(typeof body.access_token).toBe("string");
+    expect(typeof body.id_token).toBe("string");
+    expect(typeof body.refresh_token).toBe("string");
+    // Rotated token must differ from the original
+    expect(body.refresh_token).not.toBe(rt);
+
+    const atPayload = unsafeDecodePayload(body.access_token);
+    expect(atPayload.sub).toBe("bob@example.com");
+
+    const newRtPayload = unsafeDecodePayload(body.refresh_token);
+    expect(newRtPayload.type).toBe("refresh_token");
+    expect(newRtPayload.sub).toBe("bob@example.com");
+  });
+
+  it("refresh_token grant rejects an invalid token", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "refresh_token",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      refresh_token: "not-a-valid-jwt",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_grant");
+  });
+
+  it("refresh_token grant rejects a token issued for a different client", async () => {
+    const app = createApp(testClients, testUsers);
+    // Token issued for my-service but presented as my-app
+    const rt = await issueRefreshToken(userOptOut, machineClient, "openid offline_access");
+    const res = await tokenRequest(app, {
+      grant_type: "refresh_token",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      refresh_token: rt,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_grant");
+  });
+
+  it("refresh_token grant rejects wrong client secret", async () => {
+    const app = createApp(testClients, testUsers);
+    const rt = await issueRefreshToken(userOptOut, webClient, "openid offline_access");
+    const res = await tokenRequest(app, {
+      grant_type: "refresh_token",
+      client_id: "my-app",
+      client_secret: "wrong-secret",
+      refresh_token: rt,
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("invalid_client");
+  });
+
+  it("refresh_token grant rejects missing refresh_token param", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "refresh_token",
+      client_id: "my-app",
+      client_secret: "app-secret",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid_grant");
+  });
+});
+
+// ── RP-initiated logout ───────────────────────────────────────────────────────
+
+describe("logout endpoint", () => {
+  it("clears the nyx_session cookie", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+
+    const res = await app.request("/api/auth/oauth2/logout", {
+      headers: { Cookie: cookie },
+    });
+
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/nyx_session=;/);
+  });
+
+  it("redirects to post_logout_redirect_uri when provided", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/logout?post_logout_redirect_uri=https://app.example.com/logged-out"
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://app.example.com/logged-out");
+  });
+
+  it("includes state in post_logout_redirect_uri", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/logout?post_logout_redirect_uri=https://app.example.com/logged-out&state=xyz"
+    );
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("Location") ?? "");
+    expect(location.searchParams.get("state")).toBe("xyz");
+  });
+
+  it("returns 200 HTML when no post_logout_redirect_uri", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/oauth2/logout");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+  });
+});
+
+// ── Discovery document ────────────────────────────────────────────────────────
+
+describe("OIDC discovery document", () => {
+  it("includes end_session_endpoint", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/.well-known/openid-configuration");
+    const body = await res.json();
+    expect(body.end_session_endpoint).toBe("http://test.nyx.local/api/auth/oauth2/logout");
+  });
+
+  it("includes refresh_token in grant_types_supported", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/.well-known/openid-configuration");
+    const body = await res.json();
+    expect(body.grant_types_supported).toContain("refresh_token");
+  });
+
+  it("includes offline_access in scopes_supported", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/.well-known/openid-configuration");
+    const body = await res.json();
+    expect(body.scopes_supported).toContain("offline_access");
   });
 });
