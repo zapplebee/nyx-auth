@@ -104,7 +104,9 @@ steps:
     commands:
       - apk add --no-cache curl
       - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
-      - mc alias set minio https://artifacts.prettybird.zapplebee.online "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+      # Use Docker bridge gateway IP (172.17.0.1) — accessible from any Vela build
+      # container without needing a public DNS record for artifacts.prettybird.zapplebee.online
+      - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/videos/" || echo "no videos to upload"
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/screenshots/" || echo "no screenshots to upload"
