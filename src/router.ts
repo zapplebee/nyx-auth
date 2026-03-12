@@ -199,7 +199,7 @@ export function createApp(
 
     const result =
       user && requiresTotp(user)
-        ? await totpVerify({ token: code, secret: user.otpSeed! })
+        ? await totpVerify({ token: code, secret: user.otpSeed!, window: 1 })
         : null;
     const totpOk = result?.valid === true;
 
