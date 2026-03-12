@@ -54,7 +54,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -d ${VELA_WORKSPACE}/cookie-test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/cookie-test-app && npm install && node server.js"
+      - "until [ -d ${VELA_WORKSPACE}/cookie-test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/cookie-test-app && npm install --omit=dev && node server.js"
     environment:
       AUTH_URL: http://nyx-auth:3000
       CLIENT_ID: ci-cookie-test
