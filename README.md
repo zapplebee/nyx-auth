@@ -1,15 +1,8 @@
 # nyx-auth
 
-OIDC identity provider for the nyx homelab. Built on [Better Auth](https://better-auth.com), [Hono](https://hono.dev), and Bun.
+A stateless OpenID Connect identity provider for small teams. Designed for adding SSO to internal admin panels without running a database or an identity platform.
 
-## What it does
-
-- Issues OpenID Connect tokens (authorization code flow) so other apps on nyx can delegate auth here
-- Email + password authentication with a dark-themed login page
-- Per-client consent page (approve/deny)
-- SQLite database for users and sessions
-- Admin REST API (bearer token) for user management
-- All OIDC clients defined in static YAML config — no runtime client management
+Users and clients are defined in YAML config files. All session state lives in signed JWTs. There is no admin API and no database.
 
 ## Stack
 
@@ -17,154 +10,78 @@ OIDC identity provider for the nyx homelab. Built on [Better Auth](https://bette
 |---|---|
 | Runtime | Bun |
 | Web framework | Hono |
-| Auth library | Better Auth 1.x |
-| Database | SQLite (`bun:sqlite`, WAL mode) |
-| OIDC | Better Auth `oidcProvider` plugin |
+| JWT | jose (ES256) |
+| TOTP | otplib |
+| Config format | YAML (encrypted secrets) |
 
-## Setup
+## How it works
 
-### 1. Install dependencies
+1. A client app redirects to `/api/auth/oauth2/authorize`
+2. The user enters email + password, then a TOTP code (unless opted out)
+3. nyx-auth issues a signed authorization code and redirects back
+4. The client exchanges the code for an ID token and access token
+5. The ID token contains `email`, `name`, and per-client `roles`
+
+Standard OIDC authorization code flow with PKCE. Discovery document at `/api/auth/.well-known/openid-configuration`.
+
+## Quick start
+
+### 1. Install
 
 ```bash
 bun install
 ```
 
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Fill in `.env`:
+### 2. Environment
 
 ```env
-# Generate with: openssl rand -base64 32
-BETTER_AUTH_SECRET=
+# Encryption key for config secrets and JWT signing (if SIGNING_PRIVATE_JWK not set)
+BETTER_AUTH_SECRET=<random 32+ char string>
 
-# Public URL this service is served at
-BETTER_AUTH_URL=https://auth.prettybird.zapplebee.online
+# Public URL this service is reachable at
+BETTER_AUTH_URL=https://auth.example.com
 
-# Comma-separated allowed CORS origins
-TRUSTED_ORIGINS=https://vela.prettybird.zapplebee.online
-
-# Bearer token for the admin API — generate with: openssl rand -base64 32
-ADMIN_API_KEY=
+# Comma-separated CORS origins allowed to call /api/auth/*
+TRUSTED_ORIGINS=https://admin.example.com
 
 PORT=3000
 ```
 
-### 3. Configure clients
+### 3. Define clients
 
 ```bash
 cp clients.yml.example clients.yml
-```
-
-Edit `clients.yml` to define your OIDC clients (see [Clients](#clients) below), then set each client's secret:
-
-```bash
+# set each client's secret (prompts, then writes enc:... back to the file)
 bun run clients:set-secret <clientId>
 ```
 
-This prompts for the plain-text secret, encrypts it with AES-256-GCM (key derived from `BETTER_AUTH_SECRET`), and writes the `enc:...` value back into `clients.yml`. The encrypted value is safe to commit.
+### 4. Define users
 
-### 4. Run database migration
-
-```bash
-bun run db:migrate
-```
-
-Creates all Better Auth tables in `data/auth.db`. Re-run after upgrading Better Auth.
-
-### 5. Create your first user
+Create `users.yml` (see [USAGE.md](USAGE.md) for the full format), then encrypt passwords and TOTP seeds:
 
 ```bash
-curl -X POST https://auth.prettybird.zapplebee.online/admin/users \
-  -H "Authorization: Bearer $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "password": "...", "name": "Your Name", "role": "admin"}'
+bun run users:set-password <email>
+bun run users:set-totp-seed <email>   # or set otpSeed: OPT_OUT to skip TOTP
 ```
 
-### 6. Start
+### 5. Run
 
 ```bash
-bun run dev    # development (watch mode)
-bun run start  # production
+bun run dev     # watch mode
+bun run start   # production
 ```
-
-## Clients
-
-All OIDC clients are defined in `clients.yml`. There is no API for managing clients — edit the file and restart the service.
-
-```yaml
-clients:
-  - name: Vela CI              # human-readable display name
-    clientId: vela             # used in OIDC authorize requests
-    clientSecret: "enc:..."    # set via: bun run clients:set-secret vela
-    type: web                  # web | native | user-agent-based | public
-    redirectURLs:
-      - https://vela.prettybird.zapplebee.online/callback
-    roles:                     # roles included in the OIDC token for this client
-      - user
-      - admin
-    skipConsent: true          # skip the consent screen (recommended for internal apps)
-```
-
-### `roles` per client
-
-The `roles` claim in the OIDC token is the intersection of the user's role and the client's `roles` list. A client that only declares `[user]` will never receive `admin` in the token, even for admin users. Apps use this to enforce role-based access.
-
-### Rotating a client secret
-
-```bash
-bun run clients:set-secret <clientId>
-```
-
-The old secret is replaced in `clients.yml`. Restart the service to pick it up.
-
-## Admin API
-
-All endpoints require `Authorization: Bearer $ADMIN_API_KEY`.
-
-### Users
-
-| Method | Path | Body / Query | Description |
-|---|---|---|---|
-| `GET` | `/admin/users` | `?search=&limit=&offset=` | List users |
-| `POST` | `/admin/users` | `{email, password, name?, role?}` | Create user |
-| `PATCH` | `/admin/users/:id/password` | `{password}` | Set password |
-| `PATCH` | `/admin/users/:id/role` | `{role}` | Set role |
-| `DELETE` | `/admin/users/:id` | | Delete user |
-| `POST` | `/admin/users/:id/ban` | `{reason?, expiresAt?}` | Ban user |
-| `POST` | `/admin/users/:id/unban` | | Unban user |
 
 ## OIDC endpoints
 
-Exposed automatically by Better Auth. Discovery document at `/.well-known/openid-configuration`.
+All under `/api/auth/`:
 
 | Endpoint | Path |
 |---|---|
-| Discovery | `GET /.well-known/openid-configuration` |
-| Authorization | `GET /api/auth/oauth2/authorize` |
-| Token | `POST /api/auth/oauth2/token` |
-| Userinfo | `GET /api/auth/oauth2/userinfo` |
-| JWKS | `GET /api/auth/jwks` |
-| End session | `GET /api/auth/oauth2/endsession` |
-
-### Registering nyx-auth with a client app
-
-Use the standard OIDC authorization code flow. Example values:
-
-```
-issuer:         https://auth.prettybird.zapplebee.online
-client_id:      <clientId from clients.yml>
-client_secret:  <plain-text secret you set with clients:set-secret>
-redirect_uri:   one of the URLs listed in clients.yml
-scopes:         openid profile email
-```
-
-## Deployment on nyx
-
-Add to `nyx-docker/docker-compose.auth.yml` (not yet created) and point Traefik at `auth.prettybird.zapplebee.online`. The `data/` directory containing `auth.db` should be bind-mounted to a persistent path on the host.
+| Discovery | `GET .well-known/openid-configuration` |
+| JWKS | `GET jwks.json` |
+| Authorization | `GET oauth2/authorize` |
+| Token | `POST oauth2/token` |
+| Userinfo | `GET userinfo` |
 
 ## Scripts
 
@@ -172,5 +89,14 @@ Add to `nyx-docker/docker-compose.auth.yml` (not yet created) and point Traefik 
 |---|---|
 | `bun run dev` | Start with file watching |
 | `bun run start` | Start for production |
-| `bun run db:migrate` | Create / update database schema |
+| `bun run test` | Run unit tests |
+| `bun run test:coverage` | Run unit tests with coverage |
 | `bun run clients:set-secret <clientId>` | Encrypt and store a client secret |
+| `bun run users:set-password <email>` | Encrypt and store a user password |
+| `bun run users:set-totp-seed <email>` | Encrypt and store a TOTP seed |
+
+## Deployment
+
+See [USAGE.md](USAGE.md) for Docker, multi-replica, and client integration examples.
+
+See [PRINCIPLES.md](PRINCIPLES.md) for the design philosophy behind the stateless, config-first approach.
