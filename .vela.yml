@@ -59,6 +59,12 @@ steps:
       - echo "Waiting for test-app..."
       - for i in $(seq 1 90); do curl -sf http://test-app:5173/ && echo "test-app ready" && break; [ $i -eq 90 ] && echo "test-app never ready" && exit 1; sleep 2; done
 
+  - name: unit-test
+    image: oven/bun:1.3.5
+    pull: always
+    commands:
+      - cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun test:coverage
+
   - name: cypress
     image: cypress/included:latest
     pull: always

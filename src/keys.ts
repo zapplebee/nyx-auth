@@ -47,3 +47,8 @@ export async function getKeys(): Promise<SigningKeys> {
 
   return _keys;
 }
+
+/** Reset the key singleton. Only call this in tests. */
+export function resetKeysForTest(): void {
+  _keys = null;
+}
