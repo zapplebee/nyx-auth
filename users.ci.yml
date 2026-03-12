@@ -1,0 +1,9 @@
+users:
+  - email: ci@nyx.test
+    name: CI Test User
+    # "TestPass1234!" encrypted with BETTER_AUTH_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
+    password: "enc:JdptaEsmDIISWnBhhsaSagz+N3DMxSquMWofRkyOq3TL5Jgv05dJPZQ="
+    clients:
+      - clientId: ci-test
+        roles:
+          - user

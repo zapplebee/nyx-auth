@@ -18,30 +18,24 @@ secrets:
     engine: native
     type: repo
 
-# nyx-auth runs as a service so it is reachable via http://nyx-auth:3000
-# throughout all steps. Uses a fixed CI-only secret and pre-encrypted
-# client config so no runtime secret generation is needed.
+# nyx-auth is fully stateless — no database, no migration step.
+# Users and clients are driven by config files loaded at startup.
 services:
-  # nyx-auth service — override entrypoint so shell commands run correctly.
-  # oven/bun has ENTRYPOINT ["bun"]; when Vela sets an explicit entrypoint,
-  # commands are NOT appended automatically — the full script goes in entrypoint.
   - name: nyx-auth
     image: oven/bun:1.3.5
     pull: always
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile --ignore-scripts && echo y | bun node_modules/.bin/better-auth migrate --config src/auth.ts && bun src/index.ts"
+      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun src/index.ts"
     environment:
       BETTER_AUTH_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       BETTER_AUTH_URL: http://nyx-auth:3000
       TRUSTED_ORIGINS: http://test-app:5173
       CLIENTS_CONFIG: ./clients.ci.yml
+      USERS_CONFIG: ./users.ci.yml
       PORT: "3000"
-      # Fixed CI-only admin key for creating the test user between steps
-      ADMIN_API_KEY: ci-admin-api-key-do-not-use-in-prod
 
-  # Vite dev server for the oidc-client-ts test page — same entrypoint approach
   - name: test-app
     image: node:20-alpine
     pull: always
@@ -50,14 +44,11 @@ services:
       - -c
       - "until [ -d ${VELA_WORKSPACE}/test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/test-app && npm install && npx vite --host 0.0.0.0 --port 5173"
     environment:
-      # better-auth serves the OIDC discovery doc under /api/auth/
       VITE_AUTH_URL: http://nyx-auth:3000/api/auth
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
 
 steps:
-  # Wait for both services to accept connections before running tests.
-  # Exits non-zero if either service never becomes ready.
   - name: wait-for-services
     image: alpine:latest
     pull: always
@@ -67,21 +58,6 @@ steps:
       - for i in $(seq 1 90); do curl -sf http://nyx-auth:3000/ && echo "nyx-auth ready" && break; [ $i -eq 90 ] && echo "nyx-auth never ready" && exit 1; sleep 2; done
       - echo "Waiting for test-app..."
       - for i in $(seq 1 90); do curl -sf http://test-app:5173/ && echo "test-app ready" && break; [ $i -eq 90 ] && echo "test-app never ready" && exit 1; sleep 2; done
-
-  # Create the CI test user via the admin API before Cypress runs.
-  # Ignores 409 (user already exists from a previous build on the same DB).
-  - name: create-test-user
-    image: alpine:latest
-    pull: always
-    commands:
-      - apk add --no-cache curl
-      - |
-        STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST http://nyx-auth:3000/admin/users \
-          -H "Authorization: Bearer ci-admin-api-key-do-not-use-in-prod" \
-          -H "Content-Type: application/json" \
-          -d '{"email":"ci@nyx.test","password":"TestPass1234!","name":"CI Test User","role":"user"}')
-        echo "HTTP $STATUS: $(cat /tmp/resp.json)"
-        [ "$STATUS" = "201" ] || [ "$STATUS" = "422" ] || [ "$STATUS" = "409" ] || exit 1
 
   - name: cypress
     image: cypress/included:latest
@@ -94,7 +70,6 @@ steps:
     commands:
       - cd test-app && cypress run --browser chrome
 
-  # Upload Cypress videos and screenshots to MinIO regardless of test outcome.
   - name: upload-artifacts
     image: alpine:latest
     pull: always
@@ -104,8 +79,6 @@ steps:
     commands:
       - apk add --no-cache curl
       - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
-      # Upload via host bridge IP — avoids DNS dependency inside Vela build containers.
-      # Public download URLs use bucket.prettybird.zapplebee.online (Traefik → MinIO).
       - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
       - mc anonymous set download minio/cypress-videos
@@ -117,7 +90,6 @@ steps:
         echo "=== Console ==="
         echo "  https://minio.prettybird.zapplebee.online/browser/cypress-videos/${VELA_BUILD_NUMBER}/"
 
-  # On branch pushes: tag with latest + short commit SHA
   - name: publish-push
     ruleset:
       event: push
@@ -132,7 +104,6 @@ steps:
         - harbor.prettybird.zapplebee.online/library/nyx-auth:latest
         - harbor.prettybird.zapplebee.online/library/nyx-auth:${VELA_BUILD_COMMIT:0:8}
 
-  # On git tags: tag the image with the semver tag value
   - name: publish-tag
     ruleset:
       event: tag

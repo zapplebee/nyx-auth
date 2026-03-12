@@ -10,12 +10,9 @@ import { decryptSecret } from "./crypto";
 export interface ClientConfig {
   name: string;
   clientId: string;
-  clientSecret: string; // "enc:..." in YAML
+  clientSecret: string; // "enc:..." in YAML, decrypted at load time
   type?: "web" | "native" | "user-agent-based" | "public";
   redirectURLs: string[];
-  // Roles included in the OIDC token for this client.
-  // The roles claim is the intersection of the user's roles and this list.
-  roles: string[];
   skipConsent?: boolean;
 }
 
@@ -23,41 +20,18 @@ interface ClientsFile {
   clients: ClientConfig[];
 }
 
-function loadRawConfig(): ClientsFile {
-  const path = process.env.CLIENTS_CONFIG ?? "./clients.yml";
-  const text = readFileSync(path, "utf-8");
-  return YAML.parse(text) as ClientsFile;
-}
-
 // Decrypt all client secrets. Called once at startup.
-export async function loadClients(): Promise<{
-  trustedClients: ReturnType<typeof toTrustedClient>[];
-  configByClientId: Map<string, ClientConfig>;
-}> {
+export async function loadClients(): Promise<Map<string, ClientConfig>> {
   const secret = process.env.BETTER_AUTH_SECRET!;
-  const { clients } = loadRawConfig();
+  const path = process.env.CLIENTS_CONFIG ?? "./clients.yml";
+  const { clients } = YAML.parse(readFileSync(path, "utf-8")) as ClientsFile;
 
-  const configByClientId = new Map<string, ClientConfig>();
-  const trustedClients: ReturnType<typeof toTrustedClient>[] = [];
-
+  const map = new Map<string, ClientConfig>();
   for (const cfg of clients) {
-    const decrypted = await decryptSecret(cfg.clientSecret, secret);
-    const resolved = { ...cfg, clientSecret: decrypted };
-    configByClientId.set(cfg.clientId, resolved);
-    trustedClients.push(toTrustedClient(resolved));
+    map.set(cfg.clientId, {
+      ...cfg,
+      clientSecret: await decryptSecret(cfg.clientSecret, secret),
+    });
   }
-
-  return { trustedClients, configByClientId };
-}
-
-function toTrustedClient(cfg: ClientConfig) {
-  return {
-    clientId: cfg.clientId,
-    clientSecret: cfg.clientSecret,
-    name: cfg.name,
-    type: cfg.type ?? ("web" as const),
-    redirectUrls: cfg.redirectURLs,
-    disabled: false,
-    skipConsent: cfg.skipConsent ?? false,
-  };
+  return map;
 }
