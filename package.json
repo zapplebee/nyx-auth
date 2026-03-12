@@ -1,0 +1,17 @@
+{
+  "name": "nyx-auth",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "db:migrate": "bunx --bun @better-auth/cli migrate --config src/auth.ts"
+  },
+  "dependencies": {
+    "better-auth": "latest",
+    "hono": "latest"
+  },
+  "devDependencies": {
+    "@better-auth/cli": "^1.4.21"
+  }
+}
