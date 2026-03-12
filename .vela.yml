@@ -31,7 +31,7 @@ services:
     environment:
       NYX_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       NYX_URL: http://nyx-auth:3000
-      TRUSTED_ORIGINS: http://test-app:5173
+      TRUSTED_ORIGINS: http://test-app:5173,http://cookie-test-app:5174
       CLIENTS_CONFIG: ./clients.ci.yml
       USERS_CONFIG: ./users.ci.yml
       PORT: "3000"
@@ -48,6 +48,20 @@ services:
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
 
+  - name: cookie-test-app
+    image: node:20-alpine
+    pull: always
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "until [ -d ${VELA_WORKSPACE}/cookie-test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/cookie-test-app && npm install && node server.js"
+    environment:
+      AUTH_URL: http://nyx-auth:3000
+      CLIENT_ID: ci-cookie-test
+      CLIENT_SECRET: ci-cookie-test-secret
+      BASE_URL: http://cookie-test-app:5174
+      PORT: "5174"
+
 steps:
   - name: wait-for-services
     image: alpine:latest
@@ -58,6 +72,8 @@ steps:
       - for i in $(seq 1 90); do curl -sf http://nyx-auth:3000/ && echo "nyx-auth ready" && break; [ $i -eq 90 ] && echo "nyx-auth never ready" && exit 1; sleep 2; done
       - echo "Waiting for test-app..."
       - for i in $(seq 1 90); do curl -sf http://test-app:5173/ && echo "test-app ready" && break; [ $i -eq 90 ] && echo "test-app never ready" && exit 1; sleep 2; done
+      - echo "Waiting for cookie-test-app..."
+      - for i in $(seq 1 90); do curl -sf http://cookie-test-app:5174/ && echo "cookie-test-app ready" && break; [ $i -eq 90 ] && echo "cookie-test-app never ready" && exit 1; sleep 2; done
 
   - name: unit-test
     image: oven/bun:1.3.5
@@ -77,6 +93,18 @@ steps:
     commands:
       - cd test-app && cypress run --browser chrome
 
+  - name: cypress-cookie
+    image: cypress/included:latest
+    pull: always
+    environment:
+      CYPRESS_BASE_URL: http://cookie-test-app:5174
+      CYPRESS_AUTH_URL: http://nyx-auth:3000
+      CYPRESS_CI_EMAIL: ci@nyx.test
+      CYPRESS_CI_PASSWORD: TestPass1234!
+      CYPRESS_CI_OTP_SECRET: 5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M
+    commands:
+      - cd cookie-test-app && npm install && cypress run --browser chrome
+
   - name: upload-artifacts
     image: alpine:latest
     pull: always
@@ -89,8 +117,10 @@ steps:
       - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
       - mc anonymous set download minio/cypress-videos
-      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/videos/" || echo "no videos to upload"
-      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/screenshots/" || echo "no screenshots to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/videos/" || echo "no test-app videos to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/screenshots/" || echo "no test-app screenshots to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/cookie-test-app/videos/" || echo "no cookie-test-app videos to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/cookie-test-app/screenshots/" || echo "no cookie-test-app screenshots to upload"
       - |
         echo "=== Artifact download links ==="
         mc ls --recursive "minio/cypress-videos/${VELA_BUILD_NUMBER}/" | awk -v build="${VELA_BUILD_NUMBER}" '{print "  https://bucket.prettybird.zapplebee.online/cypress-videos/" build "/" $NF}'

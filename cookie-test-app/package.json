@@ -1,0 +1,17 @@
+{
+  "name": "nyx-auth-cookie-test-app",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "express-session": "^1.18.0"
+  },
+  "devDependencies": {
+    "cypress": "^13.0.0",
+    "otplib": "^13.3.0"
+  }
+}

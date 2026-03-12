@@ -11,6 +11,18 @@ clients:
       - user
     skipConsent: true
 
+  - name: CI Cookie Test Client
+    clientId: ci-cookie-test
+    # "ci-cookie-test-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
+    clientSecret: "enc:DRLplRUt/U4wMvAXAyPK2CgEymljHZJ+iY8/FLxWmhtuAImM6BMTtjn5TI8dmBmz2Q=="
+    type: web
+    redirectURLs:
+      - http://cookie-test-app:5174/callback
+      - http://localhost:5174/callback
+    roles:
+      - user
+    skipConsent: true
+
   - name: CI Machine Client
     clientId: ci-machine
     # "ci-machine-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
