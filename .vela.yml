@@ -104,13 +104,18 @@ steps:
     commands:
       - apk add --no-cache curl
       - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
-      # Use Docker bridge gateway IP (172.17.0.1) — accessible from any Vela build
-      # container without needing a public DNS record for artifacts.prettybird.zapplebee.online
+      # Upload via host bridge IP — avoids DNS dependency inside Vela build containers.
+      # Public download URLs use bucket.prettybird.zapplebee.online (Traefik → MinIO).
       - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
+      - mc anonymous set download minio/cypress-videos
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/videos/" || echo "no videos to upload"
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/screenshots/" || echo "no screenshots to upload"
-      - echo "Artifacts at https://minio.prettybird.zapplebee.online/browser/cypress-videos/${VELA_BUILD_NUMBER}/"
+      - |
+        echo "=== Artifact download links ==="
+        mc ls --recursive "minio/cypress-videos/${VELA_BUILD_NUMBER}/" | awk -v build="${VELA_BUILD_NUMBER}" '{print "  https://bucket.prettybird.zapplebee.online/cypress-videos/" build "/" $NF}'
+        echo "=== Console ==="
+        echo "  https://minio.prettybird.zapplebee.online/browser/cypress-videos/${VELA_BUILD_NUMBER}/"
 
   # On branch pushes: tag with latest + short commit SHA
   - name: publish-push
