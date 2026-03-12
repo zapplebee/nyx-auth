@@ -65,6 +65,37 @@ export async function verifySessionToken(token: string): Promise<string | null> 
   }
 }
 
+// ── Pending-TOTP tokens (5-min, issued after password check) ─────────────────
+
+/**
+ * Issue a short-lived "pending TOTP" token after a successful password check.
+ * The client must present this token together with the TOTP code to complete login.
+ */
+export async function issuePendingTotpToken(email: string): Promise<string> {
+  const { privateKey, kid } = await getKeys();
+  return new SignJWT({ sub: email, type: "pending_totp" })
+    .setProtectedHeader({ alg: "ES256", kid })
+    .setIssuer(getIssuer())
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(privateKey);
+}
+
+/**
+ * Verify a pending-TOTP token and return the email (sub), or null if invalid.
+ */
+export async function verifyPendingTotpToken(token: string): Promise<string | null> {
+  if (!token) return null;
+  try {
+    const { publicKey } = await getKeys();
+    const { payload } = await jwtVerify(token, publicKey, { issuer: getIssuer() });
+    if (payload.type !== "pending_totp" || typeof payload.sub !== "string") return null;
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
 // ── Authorization codes (2-min OIDC code grant) ───────────────────────────────
 
 /**

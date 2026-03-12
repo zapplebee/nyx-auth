@@ -19,29 +19,51 @@ export function loginHtml(qs: string): string {
     button:hover { background: #2d6ce0; }
     button:disabled { background: #2a4a80; cursor: not-allowed; }
     .error { display: none; color: #f87171; font-size: 0.8125rem; margin-bottom: 1rem; padding: 0.5rem 0.75rem; background: #2a1212; border: 1px solid #5a2020; border-radius: 6px; }
+    .hint { font-size: 0.8125rem; color: #666; margin-bottom: 1rem; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>nyx-auth</h1>
     <div class="error" id="err"></div>
-    <form id="form">
+
+    <form id="form-password">
       <label for="email">Email</label>
       <input type="email" id="email" name="email" autocomplete="email" required autofocus>
       <label for="password">Password</label>
       <input type="password" id="password" name="password" autocomplete="current-password" required>
-      <button type="submit" id="btn">Sign in</button>
+      <button type="submit" id="btn-password">Sign in</button>
+    </form>
+
+    <form id="form-totp" style="display:none">
+      <p class="hint">Enter the 6-digit code from your authenticator app.</p>
+      <label for="totp">Authenticator code</label>
+      <input type="text" id="totp" name="totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus>
+      <button type="submit" id="btn-totp">Verify</button>
     </form>
   </div>
   <script>
     const qs = ${JSON.stringify(qs)};
-    document.getElementById('form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = document.getElementById('btn');
+    let pendingToken = null;
+
+    function showError(msg) {
       const err = document.getElementById('err');
-      btn.disabled = true;
-      btn.textContent = 'Signing in\u2026';
-      err.style.display = 'none';
+      err.textContent = msg;
+      err.style.display = 'block';
+    }
+    function hideError() {
+      document.getElementById('err').style.display = 'none';
+    }
+    function setLoading(btn, loading, label) {
+      btn.disabled = loading;
+      btn.textContent = loading ? label + '\u2026' : label;
+    }
+
+    document.getElementById('form-password').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-password');
+      hideError();
+      setLoading(btn, true, 'Sign in');
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -52,20 +74,50 @@ export function loginHtml(qs: string): string {
           }),
           credentials: 'include',
         });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.requiresTotp) {
+          pendingToken = data.pendingToken;
+          document.getElementById('form-password').style.display = 'none';
+          document.getElementById('form-totp').style.display = '';
+          document.getElementById('totp').focus();
+        } else if (res.ok) {
+          window.location.href = '/api/auth/oauth2/authorize?' + qs;
+        } else {
+          showError(data.error || 'Invalid email or password.');
+          setLoading(btn, false, 'Sign in');
+        }
+      } catch {
+        showError('Network error. Please try again.');
+        setLoading(btn, false, 'Sign in');
+      }
+    });
+
+    document.getElementById('form-totp').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-totp');
+      hideError();
+      setLoading(btn, true, 'Verify');
+      try {
+        const res = await fetch('/api/auth/totp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pendingToken,
+            code: document.getElementById('totp').value,
+          }),
+          credentials: 'include',
+        });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           window.location.href = '/api/auth/oauth2/authorize?' + qs;
         } else {
-          const data = await res.json().catch(() => ({}));
-          err.textContent = data.error || 'Invalid email or password.';
-          err.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Sign in';
+          showError(data.error || 'Invalid code.');
+          document.getElementById('totp').value = '';
+          setLoading(btn, false, 'Verify');
         }
       } catch {
-        err.textContent = 'Network error. Please try again.';
-        err.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Sign in';
+        showError('Network error. Please try again.');
+        setLoading(btn, false, 'Verify');
       }
     });
   </script>

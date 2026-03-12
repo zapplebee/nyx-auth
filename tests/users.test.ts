@@ -1,10 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { verifyPassword, rolesForClient, type UserConfig } from "../src/users";
+import { verifyPassword, rolesForClient, requiresTotp, OTP_OUT, type UserConfig } from "../src/users";
 
 const user: UserConfig = {
   email: "alice@example.com",
   name: "Alice",
   password: "correct-horse-battery-staple",
+  otpSeed: "JBSWY3DPEHPK3PXP",
   clients: [
     { clientId: "app-a", roles: ["admin", "editor"] },
     { clientId: "app-b", roles: ["viewer"] },
@@ -46,5 +47,20 @@ describe("rolesForClient", () => {
 
   it("returns an empty array for an unknown client", () => {
     expect(rolesForClient(user, "unknown-client")).toEqual([]);
+  });
+});
+
+describe("requiresTotp", () => {
+  it("returns true when otpSeed is a real seed", () => {
+    expect(requiresTotp({ ...user, otpSeed: "JBSWY3DPEHPK3PXP" })).toBe(true);
+  });
+
+  it("returns false when otpSeed is OPT_OUT", () => {
+    expect(requiresTotp({ ...user, otpSeed: OTP_OUT })).toBe(false);
+  });
+
+  it("returns false when otpSeed is undefined", () => {
+    const { otpSeed: _, ...noOtp } = user;
+    expect(requiresTotp(noOtp as UserConfig)).toBe(false);
   });
 });

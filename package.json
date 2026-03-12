@@ -8,10 +8,12 @@
     "test": "bun test tests/",
     "test:coverage": "bun test --coverage tests/",
     "clients:set-secret": "bun scripts/set-client-secret.ts",
-    "users:set-password": "bun scripts/set-user-password.ts"
+    "users:set-password": "bun scripts/set-user-password.ts",
+    "users:set-totp-seed": "bun scripts/set-user-totp-seed.ts"
   },
   "dependencies": {
     "hono": "latest",
-    "jose": "^5.9.6"
+    "jose": "^5.9.6",
+    "otplib": "^13.3.0"
   }
 }

@@ -13,11 +13,20 @@ export interface UserClientEntry {
   roles: string[];
 }
 
+export const OTP_OUT = "OPT_OUT";
+
 export interface UserConfig {
   email: string;       // also used as sub
   name: string;
   password: string;    // "enc:..." in YAML
+  /** Base32 TOTP secret (decrypted), or OPT_OUT, or undefined (treated as OPT_OUT). */
+  otpSeed?: string;
   clients: UserClientEntry[];
+}
+
+/** Returns true when the user must present a TOTP code at login. */
+export function requiresTotp(user: UserConfig): boolean {
+  return !!user.otpSeed && user.otpSeed !== OTP_OUT;
 }
 
 interface UsersFile {
@@ -32,9 +41,15 @@ export async function loadUsers(): Promise<Map<string, UserConfig>> {
 
   const map = new Map<string, UserConfig>();
   for (const u of users) {
+    const raw = u as UserConfig & { otpSeed?: string };
+    const otpSeed =
+      raw.otpSeed && raw.otpSeed !== OTP_OUT
+        ? await decryptSecret(raw.otpSeed, secret)
+        : raw.otpSeed; // undefined or "OPT_OUT" — no decryption needed
     map.set(u.email.toLowerCase(), {
       ...u,
       password: await decryptSecret(u.password, secret),
+      otpSeed,
     });
   }
   return map;

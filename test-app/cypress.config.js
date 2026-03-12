@@ -21,6 +21,15 @@ export default defineConfig({
         }
         return launchOptions;
       });
+
+      // Generate a TOTP code from a base32 seed. Runs in Node (not the browser)
+      // so the code can be computed and passed into cy.origin() as an argument.
+      on("task", {
+        async generateTotp(secret) {
+          const { generate } = await import("otplib");
+          return generate({ secret });
+        },
+      });
     },
   },
 });

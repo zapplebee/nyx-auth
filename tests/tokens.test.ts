@@ -8,6 +8,8 @@ import {
   issueIdToken,
   issueAccessToken,
   verifyAccessToken,
+  issuePendingTotpToken,
+  verifyPendingTotpToken,
   unsafeDecodePayload,
   safeEqual,
 } from "../src/tokens";
@@ -169,6 +171,39 @@ describe("access tokens", () => {
     const token = await issueAccessToken(testUser, testClient, "openid");
     const tampered = token.slice(0, -5) + "XXXXX";
     await expect(verifyAccessToken(tampered)).rejects.toThrow();
+  });
+});
+
+// ── Pending-TOTP tokens ───────────────────────────────────────────────────────
+
+describe("pending TOTP tokens", () => {
+  it("round-trips email through issue/verify", async () => {
+    const token = await issuePendingTotpToken("alice@example.com");
+    const email = await verifyPendingTotpToken(token);
+    expect(email).toBe("alice@example.com");
+  });
+
+  it("returns null for empty string", async () => {
+    expect(await verifyPendingTotpToken("")).toBeNull();
+  });
+
+  it("returns null for a tampered token", async () => {
+    const token = await issuePendingTotpToken("alice@example.com");
+    const tampered = token.slice(0, -5) + "XXXXX";
+    expect(await verifyPendingTotpToken(tampered)).toBeNull();
+  });
+
+  it("returns null for a session token (wrong type)", async () => {
+    const sessionToken = await issueSessionToken("alice@example.com");
+    expect(await verifyPendingTotpToken(sessionToken)).toBeNull();
+  });
+
+  it("payload contains type=pending_totp and correct issuer", async () => {
+    const token = await issuePendingTotpToken("bob@example.com");
+    const payload = unsafeDecodePayload(token);
+    expect(payload.type).toBe("pending_totp");
+    expect(payload.sub).toBe("bob@example.com");
+    expect(payload.iss).toBe(TEST_ISSUER);
   });
 });
 

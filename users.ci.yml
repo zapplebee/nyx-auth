@@ -3,6 +3,9 @@ users:
     name: CI Test User
     # "TestPass1234!" encrypted with BETTER_AUTH_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
     password: "enc:JdptaEsmDIISWnBhhsaSagz+N3DMxSquMWofRkyOq3TL5Jgv05dJPZQ="
+    # "JBSWY3DPEHPK3PXP" (base32 TOTP seed) encrypted with the same secret
+    # "5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M" (base32 TOTP seed) encrypted with the same secret
+    otpSeed: "enc:wEqIV3g0a8NSg1RIrxqvxQg4/wCPMAjGqMvxNNSFrsMfFG30s035Ed8JHTcjU5x0xw7wNKSzT2c0xUx2"
     clients:
       - clientId: ci-test
         roles:

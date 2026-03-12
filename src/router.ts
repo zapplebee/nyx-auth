@@ -17,9 +17,13 @@ import {
   issueIdToken,
   issueAccessToken,
   verifyAccessToken,
+  issuePendingTotpToken,
+  verifyPendingTotpToken,
   safeEqual,
 } from "./tokens";
 import { loginHtml, consentHtml } from "./pages";
+import { requiresTotp } from "./users";
+import { generate as totpGenerate, verify as totpVerify } from "otplib";
 
 // Dummy password used when the requested email does not exist, so the
 // verifyPassword call always runs and doesn't short-circuit on missing users.
@@ -161,6 +165,42 @@ export function createApp(
     if (!ok) {
       await new Promise((resolve) => setTimeout(resolve, failedLoginDelayMs));
       return c.json({ error: "Invalid email or password." }, 401);
+    }
+
+    // If the user has a TOTP seed, issue a short-lived pending token instead of
+    // a full session. The client must complete the TOTP step via POST /api/auth/totp.
+    if (requiresTotp(user)) {
+      const pendingToken = await issuePendingTotpToken(user.email);
+      return c.json({ requiresTotp: true, pendingToken });
+    }
+
+    const sessionJwt = await issueSessionToken(user.email);
+    setCookie(c, "nyx_session", sessionJwt, {
+      httpOnly: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 3600,
+    });
+    return c.json({ ok: true });
+  });
+
+  // ── TOTP verification endpoint ─────────────────────────────────────────────
+
+  app.post("/api/auth/totp", async (c) => {
+    const { pendingToken, code } = await c.req.json<{ pendingToken: string; code: string }>();
+
+    const email = await verifyPendingTotpToken(pendingToken ?? "");
+    const user = email ? users.get(email) : undefined;
+
+    const result =
+      user && requiresTotp(user)
+        ? await totpVerify({ token: code, secret: user.otpSeed! })
+        : null;
+    const totpOk = result?.valid === true;
+
+    if (!totpOk) {
+      await new Promise((resolve) => setTimeout(resolve, failedLoginDelayMs));
+      return c.json({ error: "Invalid or expired code." }, 401);
     }
 
     const sessionJwt = await issueSessionToken(user.email);

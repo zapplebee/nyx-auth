@@ -4,6 +4,7 @@ const AUTH_API = AUTH_URL + "/api/auth";
 
 const CI_EMAIL = Cypress.env("CI_EMAIL") || "ci@nyx.test";
 const CI_PASSWORD = Cypress.env("CI_PASSWORD") || "TestPass1234!";
+const CI_OTP_SECRET = Cypress.env("CI_OTP_SECRET") || "5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M";
 
 describe("nyx-auth pipeline smoke tests", () => {
   it("nyx-auth health endpoint returns ok", () => {
@@ -50,14 +51,6 @@ describe("nyx-auth pipeline smoke tests", () => {
     });
   });
 
-  // Full OIDC login flow:
-  // 1. Click Login on test-app → signinRedirect() → navigates to nyx-auth/login
-  // 2. cy.origin() fills credentials on the nyx-auth origin
-  // 3. Form submits → better-auth → OAuth2 authorize → redirect to test-app/callback
-  // 4. oidc-client-ts handles callback → shows user profile
-  //
-  // Requires Chrome with --unsafely-treat-insecure-origin-as-secure=http://test-app:5173
-  // (set via before:browser:launch in cypress.config.js) so Crypto.subtle works on HTTP.
   it("failed login attempt is delayed by at least 1 second", () => {
     const start = Date.now();
     cy.request({
@@ -73,19 +66,77 @@ describe("nyx-auth pipeline smoke tests", () => {
     });
   });
 
-  it("full OIDC login flow via login page", () => {
-    cy.visit("/");
-    cy.get("#loginBtn").should("be.visible").click();
-
-    // Cypress navigates cross-origin to nyx-auth:3000 — use cy.origin() to interact
-    cy.origin(AUTH_URL, { args: { email: CI_EMAIL, password: CI_PASSWORD } }, ({ email, password }) => {
-      cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-      cy.get("#password").type(password);
-      cy.get("#btn").click();
+  it("correct password returns requiresTotp for a TOTP user", () => {
+    cy.request({
+      method: "POST",
+      url: AUTH_URL + "/api/auth/login",
+      headers: { "Content-Type": "application/json" },
+      body: { email: CI_EMAIL, password: CI_PASSWORD },
+    }).then((response) => {
+      expect(response.status).to.eq(200);
+      expect(response.body.requiresTotp).to.eq(true);
+      expect(response.body.pendingToken).to.be.a("string");
     });
+  });
 
-    // After successful auth, test-app/callback processes the code and shows the user.
-    // signinRedirectCallback() resolves → showUser() updates #status.
-    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
+  it("wrong TOTP code is rejected and delayed by at least 1 second", () => {
+    cy.request({
+      method: "POST",
+      url: AUTH_URL + "/api/auth/login",
+      headers: { "Content-Type": "application/json" },
+      body: { email: CI_EMAIL, password: CI_PASSWORD },
+    }).then((loginRes) => {
+      const { pendingToken } = loginRes.body;
+      const start = Date.now();
+      cy.request({
+        method: "POST",
+        url: AUTH_URL + "/api/auth/totp",
+        headers: { "Content-Type": "application/json" },
+        body: { pendingToken, code: "000000" },
+        failOnStatusCode: false,
+      }).then((totpRes) => {
+        const elapsed = Date.now() - start;
+        expect(totpRes.status).to.eq(401);
+        expect(elapsed).to.be.greaterThan(1000);
+      });
+    });
+  });
+
+  // Full OIDC login flow:
+  // 1. Click Login on test-app → signinRedirect() → navigates to nyx-auth/login
+  // 2. cy.origin() fills credentials on the nyx-auth origin
+  // 3. Password step succeeds → TOTP form appears
+  // 4. cy.origin() enters TOTP code (generated via cy.task before crossing origin)
+  // 5. TOTP step succeeds → OAuth2 authorize → redirect to test-app/callback
+  // 6. oidc-client-ts handles callback → shows user profile
+  //
+  // Requires Chrome with --unsafely-treat-insecure-origin-as-secure=http://test-app:5173
+  // (set via before:browser:launch in cypress.config.js) so Crypto.subtle works on HTTP.
+  it("full OIDC login flow via login page (with TOTP)", () => {
+    // Generate the TOTP code in Node context before crossing origins —
+    // cy.task() cannot be called inside cy.origin().
+    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
+      cy.visit("/");
+      cy.get("#loginBtn").should("be.visible").click();
+
+      // Cypress navigates cross-origin to nyx-auth:3000 — use cy.origin() to interact
+      cy.origin(
+        AUTH_URL,
+        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
+        ({ email, password, totpCode }) => {
+          // Step 1: password
+          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
+          cy.get("#password").type(password);
+          cy.get("#btn-password").click();
+
+          // Step 2: TOTP — form-password hides, form-totp appears
+          cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
+          cy.get("#btn-totp").click();
+        }
+      );
+
+      // After successful auth, test-app/callback processes the code and shows the user.
+      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
+    });
   });
 });

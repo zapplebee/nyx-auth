@@ -73,6 +73,7 @@ steps:
       CYPRESS_AUTH_URL: http://nyx-auth:3000
       CYPRESS_CI_EMAIL: ci@nyx.test
       CYPRESS_CI_PASSWORD: TestPass1234!
+      CYPRESS_CI_OTP_SECRET: 5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M
     commands:
       - cd test-app && cypress run --browser chrome
 
