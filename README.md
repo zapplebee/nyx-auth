@@ -36,10 +36,10 @@ bun install
 
 ```env
 # Encryption key for config secrets and JWT signing (if SIGNING_PRIVATE_JWK not set)
-BETTER_AUTH_SECRET=<random 32+ char string>
+NYX_SECRET=<random 32+ char string>
 
 # Public URL this service is reachable at
-BETTER_AUTH_URL=https://auth.example.com
+NYX_URL=https://auth.example.com
 
 # Comma-separated CORS origins allowed to call /api/auth/*
 TRUSTED_ORIGINS=https://admin.example.com

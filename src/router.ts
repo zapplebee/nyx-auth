@@ -65,7 +65,7 @@ export function createApp(
   // ── OIDC Discovery ─────────────────────────────────────────────────────────
 
   app.get("/api/auth/.well-known/openid-configuration", (c) => {
-    const issuer = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+    const issuer = process.env.NYX_URL ?? "http://localhost:3000";
     return c.json({
       issuer,
       authorization_endpoint: `${issuer}/api/auth/oauth2/authorize`,

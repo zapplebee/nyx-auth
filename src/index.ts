@@ -10,7 +10,7 @@ import { createApp } from "./router";
 const clients = await loadClients();
 const users = await loadUsers();
 
-const issuer = process.env.BETTER_AUTH_URL!;
+const issuer = process.env.NYX_URL!;
 console.log(`[nyx-auth] Loaded ${clients.size} client(s), ${users.size} user(s). Issuer: ${issuer}`);
 
 const app = createApp(clients, users);

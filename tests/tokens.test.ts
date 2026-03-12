@@ -20,7 +20,7 @@ import type { ClientConfig } from "../src/clients";
 const TEST_ISSUER = "http://test.nyx.local";
 
 beforeEach(() => {
-  process.env.BETTER_AUTH_URL = TEST_ISSUER;
+  process.env.NYX_URL = TEST_ISSUER;
   resetKeysForTest();
 });
 

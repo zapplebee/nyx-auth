@@ -35,7 +35,7 @@ const testUsers = new Map<string, UserConfig>([
 const testClients = new Map<string, ClientConfig>();
 
 beforeEach(() => {
-  process.env.BETTER_AUTH_URL = "http://test.nyx.local";
+  process.env.NYX_URL = "http://test.nyx.local";
   resetKeysForTest();
 });
 

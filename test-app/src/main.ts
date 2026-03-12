@@ -1,6 +1,6 @@
 import { UserManager } from "oidc-client-ts";
 
-// better-auth serves OIDC discovery under /api/auth/
+// nyx-auth serves OIDC discovery under /api/auth/
 const authUrl = import.meta.env.VITE_AUTH_URL || "http://localhost:3000/api/auth";
 const clientId = import.meta.env.VITE_CLIENT_ID || "ci-test";
 const redirectUri =

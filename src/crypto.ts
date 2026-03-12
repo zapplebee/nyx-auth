@@ -1,5 +1,5 @@
 // AES-256-GCM encryption for secrets stored in clients.yml.
-// Key is derived from BETTER_AUTH_SECRET via PBKDF2 so that encrypted values
+// Key is derived from NYX_SECRET via PBKDF2 so that encrypted values
 // are only decryptable on instances with the same secret.
 //
 // Wire format: enc:<base64(12-byte IV || ciphertext+authTag)>

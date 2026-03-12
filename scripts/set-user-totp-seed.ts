@@ -2,7 +2,7 @@
 // Usage: bun run users:set-totp-seed <email>
 //
 // Prompts for the base32 TOTP seed, encrypts it with AES-256-GCM
-// (key derived from BETTER_AUTH_SECRET), and writes it back to users.yml.
+// (key derived from NYX_SECRET), and writes it back to users.yml.
 //
 // To opt a user out of TOTP instead, set otpSeed: OPT_OUT in users.yml directly.
 // The encrypted value starts with "enc:" and is safe to commit.
@@ -17,9 +17,9 @@ if (!email) {
   process.exit(1);
 }
 
-const authSecret = process.env.BETTER_AUTH_SECRET;
+const authSecret = process.env.NYX_SECRET;
 if (!authSecret) {
-  console.error("BETTER_AUTH_SECRET is not set.");
+  console.error("NYX_SECRET is not set.");
   process.exit(1);
 }
 

@@ -8,8 +8,8 @@ import { getKeys } from "./keys";
 import { rolesForClient, type UserConfig } from "./users";
 import type { ClientConfig } from "./clients";
 
-// Read lazily so tests can set BETTER_AUTH_URL before any function is called.
-const getIssuer = () => process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+// Read lazily so tests can set NYX_URL before any function is called.
+const getIssuer = () => process.env.NYX_URL ?? "http://localhost:3000";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

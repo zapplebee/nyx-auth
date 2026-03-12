@@ -35,7 +35,7 @@ clients.yml   — OIDC client definitions (client IDs, secrets, redirect URLs, s
 users.yml     — User accounts (emails, passwords, TOTP seeds, per-client roles)
 ```
 
-Secrets are encrypted at rest using AES-256-GCM with a key derived from `BETTER_AUTH_SECRET` via PBKDF2. The `enc:...` values in the YAML files are safe to commit to a private repository.
+Secrets are encrypted at rest using AES-256-GCM with a key derived from `NYX_SECRET` via PBKDF2. The `enc:...` values in the YAML files are safe to commit to a private repository.
 
 **What this enables:**
 

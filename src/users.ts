@@ -35,7 +35,7 @@ interface UsersFile {
 
 // Decrypt all user passwords. Called once at startup.
 export async function loadUsers(): Promise<Map<string, UserConfig>> {
-  const secret = process.env.BETTER_AUTH_SECRET!;
+  const secret = process.env.NYX_SECRET!;
   const path = process.env.USERS_CONFIG ?? "./users.yml";
   const { users } = YAML.parse(readFileSync(path, "utf-8")) as UsersFile;
 

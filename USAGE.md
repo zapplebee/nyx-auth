@@ -36,7 +36,7 @@ clients:
 ### Setting a client secret
 
 ```bash
-BETTER_AUTH_SECRET=<your-secret> bun run clients:set-secret admin-panel
+NYX_SECRET=<your-secret> bun run clients:set-secret admin-panel
 ```
 
 The script prompts for the plain-text secret, encrypts it with AES-256-GCM, and writes the `enc:...` value back to `clients.yml`. The file is safe to commit.
@@ -176,14 +176,14 @@ const claims = tokens.claims(); // { sub, email, name, roles, ... }
 
 ```
 issuer:          https://auth.example.com/api/auth
-                 (value of BETTER_AUTH_URL + /api/auth is wrong — issuer IS BETTER_AUTH_URL)
+                 (value of NYX_URL + /api/auth is wrong — issuer IS NYX_URL)
 client_id:       <clientId from clients.yml>
 client_secret:   <plain-text value you set via clients:set-secret>
 redirect_uri:    must exactly match one entry in clients.yml redirectURLs
 scopes:          openid profile email
 ```
 
-> The `issuer` is the value of `BETTER_AUTH_URL` exactly (e.g. `https://auth.example.com`). Discovery is at `<issuer>/api/auth/.well-known/openid-configuration`.
+> The `issuer` is the value of `NYX_URL` exactly (e.g. `https://auth.example.com`). Discovery is at `<issuer>/api/auth/.well-known/openid-configuration`.
 
 ---
 
@@ -252,11 +252,11 @@ bun run users:set-totp-seed <email>
 
 Updates `users.yml`. The old seed stops working as soon as the service restarts. Coordinate with the user — they must re-enroll in their authenticator app.
 
-### Encryption key (`BETTER_AUTH_SECRET`)
+### Encryption key (`NYX_SECRET`)
 
 The encryption key cannot be rotated without re-encrypting all `enc:` values in `clients.yml` and `users.yml`. If you need to rotate:
 
-1. Set the new `BETTER_AUTH_SECRET` in your environment
+1. Set the new `NYX_SECRET` in your environment
 2. Re-run `clients:set-secret` for every client
 3. Re-run `users:set-password` and `users:set-totp-seed` for every user
 4. Restart nyx-auth
@@ -269,8 +269,8 @@ The encryption key cannot be rotated without re-encrypting all `enc:` values in 
 # The image is built from the repo's Dockerfile
 docker run -d \
   --name nyx-auth \
-  -e BETTER_AUTH_SECRET=<secret> \
-  -e BETTER_AUTH_URL=https://auth.example.com \
+  -e NYX_SECRET=<secret> \
+  -e NYX_URL=https://auth.example.com \
   -e TRUSTED_ORIGINS=https://admin.example.com \
   -v $(pwd)/clients.yml:/app/clients.yml:ro \
   -v $(pwd)/users.yml:/app/users.yml:ro \
@@ -288,8 +288,8 @@ services:
     image: harbor.prettybird.zapplebee.online/library/nyx-auth:latest
     restart: unless-stopped
     environment:
-      BETTER_AUTH_SECRET: ${NYX_AUTH_SECRET}
-      BETTER_AUTH_URL: https://auth.example.com
+      NYX_SECRET: ${NYX_AUTH_SECRET}
+      NYX_URL: https://auth.example.com
       TRUSTED_ORIGINS: https://admin.example.com
     volumes:
       - ./clients.yml:/app/clients.yml:ro
@@ -328,8 +328,8 @@ The `kid` field is derived from the JWK. Add one manually if you want predictabl
 
 | Variable | Required | Description |
 |---|---|---|
-| `BETTER_AUTH_SECRET` | Yes | Encryption key for `enc:` values. Min 32 chars. |
-| `BETTER_AUTH_URL` | Yes | Public URL of this service (e.g. `https://auth.example.com`). Used as OIDC issuer. |
+| `NYX_SECRET` | Yes | Encryption key for `enc:` values. Min 32 chars. |
+| `NYX_URL` | Yes | Public URL of this service (e.g. `https://auth.example.com`). Used as OIDC issuer. |
 | `TRUSTED_ORIGINS` | No | Comma-separated CORS origins. Defaults to `*` if not set. |
 | `SIGNING_PRIVATE_JWK` | No | JSON-serialized ES256 private key JWK. Generated ephemerally if not set. |
 | `CLIENTS_CONFIG` | No | Path to clients YAML. Defaults to `./clients.yml`. |

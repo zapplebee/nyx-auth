@@ -22,7 +22,7 @@ interface ClientsFile {
 
 // Decrypt all client secrets. Called once at startup.
 export async function loadClients(): Promise<Map<string, ClientConfig>> {
-  const secret = process.env.BETTER_AUTH_SECRET!;
+  const secret = process.env.NYX_SECRET!;
   const path = process.env.CLIENTS_CONFIG ?? "./clients.yml";
   const { clients } = YAML.parse(readFileSync(path, "utf-8")) as ClientsFile;
 

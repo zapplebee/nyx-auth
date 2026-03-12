@@ -1,7 +1,7 @@
 clients:
   - name: CI Test Client
     clientId: ci-test
-    # "ci-test-client-secret" encrypted with BETTER_AUTH_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
+    # "ci-test-client-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
     clientSecret: "enc:32Ru3QxCitV6mrNL0oF4DscFKHf/XR1JqESJPuC7s1Vc1mgAeyddX7fuIvNJH0UamQ=="
     type: web
     redirectURLs:
