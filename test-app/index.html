@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nyx-auth test client</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0d0d0d; color: #e2e2e2; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #181818; border: 1px solid #2a2a2a; border-radius: 10px; padding: 2rem; width: 100%; max-width: 400px; text-align: center; }
+    h1 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: #fff; }
+    .sub { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
+    #status { font-size: 0.875rem; color: #4ade80; margin-bottom: 1rem; min-height: 1.25rem; }
+    button { padding: 0.7rem 1.5rem; background: #3b7cf4; border: none; border-radius: 6px; color: #fff; font-size: 0.9375rem; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    button:hover { background: #2d6ce0; }
+    #userInfo { margin-top: 1rem; text-align: left; font-size: 0.8125rem; color: #aaa; display: none; }
+    #userInfo pre { background: #111; padding: 0.75rem; border-radius: 6px; border: 1px solid #2a2a2a; overflow: auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>nyx-auth test client</h1>
+    <p class="sub">oidc-client-ts demo</p>
+    <div id="status"></div>
+    <button id="loginBtn">Login</button>
+    <div id="userInfo">
+      <p style="margin-bottom:0.5rem;color:#888;">User profile:</p>
+      <pre id="profileJson"></pre>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

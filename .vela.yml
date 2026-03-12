@@ -1,0 +1,91 @@
+version: "1"
+
+secrets:
+  - name: docker_username
+    key: zapplebee/nyx-auth/docker_username
+    engine: native
+    type: repo
+  - name: docker_password
+    key: zapplebee/nyx-auth/docker_password
+    engine: native
+    type: repo
+
+# nyx-auth runs as a service so it is reachable via http://nyx-auth:3000
+# throughout all steps. Uses a fixed CI-only secret and pre-encrypted
+# client config so no runtime secret generation is needed.
+services:
+  - name: nyx-auth
+    image: oven/bun:1.3.5
+    pull: always
+    environment:
+      BETTER_AUTH_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
+      BETTER_AUTH_URL: http://nyx-auth:3000
+      TRUSTED_ORIGINS: http://test-app:5173
+      CLIENTS_CONFIG: ./clients.ci.yml
+      PORT: "3000"
+    commands:
+      - bun install --frozen-lockfile
+      - echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts
+      - bun src/index.ts
+
+  # Vite dev server for the oidc-client-ts test page
+  - name: test-app
+    image: node:20-alpine
+    pull: always
+    environment:
+      VITE_AUTH_URL: http://nyx-auth:3000
+      VITE_CLIENT_ID: ci-test
+      VITE_REDIRECT_URI: http://test-app:5173/callback
+    commands:
+      - cd test-app
+      - npm install
+      - npx vite --host 0.0.0.0 --port 5173
+
+steps:
+  # Wait for both services to accept connections before running tests
+  - name: wait-for-services
+    image: alpine:latest
+    pull: always
+    commands:
+      - apk add --no-cache curl
+      - echo "Waiting for nyx-auth..."
+      - for i in $(seq 1 60); do curl -sf http://nyx-auth:3000/ && break || sleep 2; done
+      - echo "Waiting for test-app..."
+      - for i in $(seq 1 60); do curl -sf http://test-app:5173/ && break || sleep 2; done
+
+  - name: cypress
+    image: cypress/included:latest
+    pull: always
+    environment:
+      CYPRESS_BASE_URL: http://test-app:5173
+      CYPRESS_AUTH_URL: http://nyx-auth:3000
+    commands:
+      - cd test-app && cypress run
+
+  # On branch pushes: tag with latest + short commit SHA
+  - name: publish-push
+    ruleset:
+      event: push
+      branch: main
+    image: target/vela-docker:latest
+    pull: always
+    secrets: [docker_username, docker_password]
+    parameters:
+      registry: harbor.prettybird.zapplebee.online
+      repo: harbor.prettybird.zapplebee.online/library/nyx-auth
+      tags:
+        - harbor.prettybird.zapplebee.online/library/nyx-auth:latest
+        - harbor.prettybird.zapplebee.online/library/nyx-auth:${VELA_BUILD_COMMIT:0:8}
+
+  # On git tags: tag the image with the semver tag value
+  - name: publish-tag
+    ruleset:
+      event: tag
+    image: target/vela-docker:latest
+    pull: always
+    secrets: [docker_username, docker_password]
+    parameters:
+      registry: harbor.prettybird.zapplebee.online
+      repo: harbor.prettybird.zapplebee.online/library/nyx-auth
+      tags:
+        - harbor.prettybird.zapplebee.online/library/nyx-auth:${VELA_BUILD_TAG}
