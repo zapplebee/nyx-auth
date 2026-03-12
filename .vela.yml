@@ -9,6 +9,14 @@ secrets:
     key: zapplebee/nyx-auth/docker_password
     engine: native
     type: repo
+  - name: minio_access_key
+    key: zapplebee/nyx-auth/minio_access_key
+    engine: native
+    type: repo
+  - name: minio_secret_key
+    key: zapplebee/nyx-auth/minio_secret_key
+    engine: native
+    type: repo
 
 # nyx-auth runs as a service so it is reachable via http://nyx-auth:3000
 # throughout all steps. Uses a fixed CI-only secret and pre-encrypted
@@ -30,6 +38,8 @@ services:
       TRUSTED_ORIGINS: http://test-app:5173
       CLIENTS_CONFIG: ./clients.ci.yml
       PORT: "3000"
+      # Fixed CI-only admin key for creating the test user between steps
+      ADMIN_API_KEY: ci-admin-api-key-do-not-use-in-prod
 
   # Vite dev server for the oidc-client-ts test page — same entrypoint approach
   - name: test-app
@@ -58,14 +68,47 @@ steps:
       - echo "Waiting for test-app..."
       - for i in $(seq 1 90); do curl -sf http://test-app:5173/ && echo "test-app ready" && break; [ $i -eq 90 ] && echo "test-app never ready" && exit 1; sleep 2; done
 
+  # Create the CI test user via the admin API before Cypress runs.
+  # Ignores 409 (user already exists from a previous build on the same DB).
+  - name: create-test-user
+    image: alpine:latest
+    pull: always
+    commands:
+      - apk add --no-cache curl
+      - |
+        STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X POST http://nyx-auth:3000/admin/users \
+          -H "Authorization: Bearer ci-admin-api-key-do-not-use-in-prod" \
+          -H "Content-Type: application/json" \
+          -d '{"email":"ci@nyx.test","password":"TestPass1234!","name":"CI Test User","role":"user"}')
+        echo "HTTP $STATUS: $(cat /tmp/resp.json)"
+        [ "$STATUS" = "201" ] || [ "$STATUS" = "422" ] || [ "$STATUS" = "409" ] || exit 1
+
   - name: cypress
     image: cypress/included:latest
     pull: always
     environment:
       CYPRESS_BASE_URL: http://test-app:5173
       CYPRESS_AUTH_URL: http://nyx-auth:3000
+      CYPRESS_CI_EMAIL: ci@nyx.test
+      CYPRESS_CI_PASSWORD: TestPass1234!
     commands:
-      - cd test-app && cypress run
+      - cd test-app && cypress run --browser chrome
+
+  # Upload Cypress videos and screenshots to MinIO regardless of test outcome.
+  - name: upload-artifacts
+    image: alpine:latest
+    pull: always
+    ruleset:
+      status: [success, failure]
+    secrets: [minio_access_key, minio_secret_key]
+    commands:
+      - apk add --no-cache curl
+      - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
+      - mc alias set minio https://artifacts.prettybird.zapplebee.online "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+      - mc mb --ignore-existing minio/cypress-videos
+      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/videos/" || echo "no videos to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/screenshots/" || echo "no screenshots to upload"
+      - echo "Artifacts at https://minio.prettybird.zapplebee.online/browser/cypress-videos/${VELA_BUILD_NUMBER}/"
 
   # On branch pushes: tag with latest + short commit SHA
   - name: publish-push

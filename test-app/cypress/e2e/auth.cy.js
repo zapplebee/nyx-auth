@@ -2,6 +2,9 @@ const AUTH_URL = Cypress.env("AUTH_URL") || "http://nyx-auth:3000";
 // better-auth exposes OIDC under /api/auth/
 const AUTH_API = AUTH_URL + "/api/auth";
 
+const CI_EMAIL = Cypress.env("CI_EMAIL") || "ci@nyx.test";
+const CI_PASSWORD = Cypress.env("CI_PASSWORD") || "TestPass1234!";
+
 describe("nyx-auth pipeline smoke tests", () => {
   it("nyx-auth health endpoint returns ok", () => {
     cy.request(AUTH_URL + "/").then((response) => {
@@ -45,5 +48,29 @@ describe("nyx-auth pipeline smoke tests", () => {
       expect(response.status).to.eq(200);
       expect(response.headers["content-type"]).to.include("text/html");
     });
+  });
+
+  // Full OIDC login flow:
+  // 1. Click Login on test-app → signinRedirect() → navigates to nyx-auth/login
+  // 2. cy.origin() fills credentials on the nyx-auth origin
+  // 3. Form submits → better-auth → OAuth2 authorize → redirect to test-app/callback
+  // 4. oidc-client-ts handles callback → shows user profile
+  //
+  // Requires Chrome with --unsafely-treat-insecure-origin-as-secure=http://test-app:5173
+  // (set via before:browser:launch in cypress.config.js) so Crypto.subtle works on HTTP.
+  it("full OIDC login flow via login page", () => {
+    cy.visit("/");
+    cy.get("#loginBtn").should("be.visible").click();
+
+    // Cypress navigates cross-origin to nyx-auth:3000 — use cy.origin() to interact
+    cy.origin(AUTH_URL, { args: { email: CI_EMAIL, password: CI_PASSWORD } }, ({ email, password }) => {
+      cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
+      cy.get("#password").type(password);
+      cy.get("#btn").click();
+    });
+
+    // After successful auth, test-app/callback processes the code and shows the user.
+    // signinRedirectCallback() resolves → showUser() updates #status.
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
   });
 });
