@@ -1,4 +1,6 @@
 const AUTH_URL = Cypress.env("AUTH_URL") || "http://nyx-auth:3000";
+// better-auth exposes OIDC under /api/auth/
+const AUTH_API = AUTH_URL + "/api/auth";
 
 describe("nyx-auth pipeline smoke tests", () => {
   it("nyx-auth health endpoint returns ok", () => {
@@ -9,7 +11,7 @@ describe("nyx-auth pipeline smoke tests", () => {
   });
 
   it("OIDC discovery endpoint is available and valid", () => {
-    cy.request(AUTH_URL + "/.well-known/openid-configuration").then((response) => {
+    cy.request(AUTH_API + "/.well-known/openid-configuration").then((response) => {
       expect(response.status).to.eq(200);
       expect(response.body).to.have.property("issuer");
       expect(response.body).to.have.property("authorization_endpoint");

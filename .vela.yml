@@ -40,7 +40,8 @@ services:
       - -c
       - "until [ -d ${VELA_WORKSPACE}/test-app ]; do sleep 1; done && cd ${VELA_WORKSPACE}/test-app && npm install && npx vite --host 0.0.0.0 --port 5173"
     environment:
-      VITE_AUTH_URL: http://nyx-auth:3000
+      # better-auth serves the OIDC discovery doc under /api/auth/
+      VITE_AUTH_URL: http://nyx-auth:3000/api/auth
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
 

@@ -1,6 +1,7 @@
 import { UserManager } from "oidc-client-ts";
 
-const authUrl = import.meta.env.VITE_AUTH_URL || "http://localhost:3000";
+// better-auth serves OIDC discovery under /api/auth/
+const authUrl = import.meta.env.VITE_AUTH_URL || "http://localhost:3000/api/auth";
 const clientId = import.meta.env.VITE_CLIENT_ID || "ci-test";
 const redirectUri =
   import.meta.env.VITE_REDIRECT_URI ||
