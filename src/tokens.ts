@@ -215,6 +215,48 @@ export function unsafeDecodePayload(token: string): JWTPayload & Record<string, 
   return decodeJwt(token) as JWTPayload & Record<string, unknown>;
 }
 
+// ── Refresh tokens (30-day, rotated on use) ───────────────────────────────────
+
+export interface RefreshTokenPayload {
+  type: "refresh_token";
+  sub: string;
+  client_id: string;
+  scope: string;
+}
+
+/**
+ * Issue a refresh token. Only issued when the scope includes "offline_access".
+ * Expires in 30 days. Rotated on every use — the old token becomes invalid
+ * when a new one is returned.
+ */
+export async function issueRefreshToken(
+  user: UserConfig,
+  client: ClientConfig,
+  scope: string
+): Promise<string> {
+  const { privateKey, kid } = await getKeys();
+  return new SignJWT({ sub: user.email, client_id: client.clientId, scope, type: "refresh_token" })
+    .setProtectedHeader({ alg: "ES256", kid })
+    .setIssuer(getIssuer())
+    .setAudience(getIssuer())
+    .setIssuedAt()
+    .setExpirationTime("30d")
+    .sign(privateKey);
+}
+
+/**
+ * Verify a refresh token and return its payload. Throws if invalid or expired.
+ */
+export async function verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
+  const { publicKey } = await getKeys();
+  const { payload } = await jwtVerify(token, publicKey, {
+    issuer: getIssuer(),
+    audience: getIssuer(),
+  });
+  if (payload.type !== "refresh_token") throw new Error("Not a refresh token");
+  return payload as unknown as RefreshTokenPayload;
+}
+
 // ── Client secret comparison ──────────────────────────────────────────────────
 
 /** Constant-time string compare to prevent timing attacks on client secrets. */

@@ -16,6 +16,8 @@ import {
   decodeAuthCode,
   issueIdToken,
   issueAccessToken,
+  issueRefreshToken,
+  verifyRefreshToken,
   issueClientCredentialsToken,
   verifyAccessToken,
   issuePendingTotpToken,
@@ -73,11 +75,12 @@ export function createApp(
       token_endpoint: `${issuer}/api/auth/oauth2/token`,
       userinfo_endpoint: `${issuer}/api/auth/userinfo`,
       jwks_uri: `${issuer}/api/auth/jwks.json`,
+      end_session_endpoint: `${issuer}/api/auth/oauth2/logout`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "client_credentials"],
+      grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
       subject_types_supported: ["public"],
       id_token_signing_alg_values_supported: ["ES256"],
-      scopes_supported: ["openid", "profile", "email"],
+      scopes_supported: ["openid", "profile", "email", "offline_access"],
       token_endpoint_auth_methods_supported: [
         "client_secret_post",
         "client_secret_basic",
@@ -259,6 +262,47 @@ export function createApp(
       });
     }
 
+    // ── refresh_token grant ───────────────────────────────────────────────────
+
+    if (grantType === "refresh_token") {
+      const rawToken = body.refresh_token as string | undefined;
+      if (!rawToken) return c.json({ error: "invalid_grant" }, 400);
+
+      let rtPayload: Awaited<ReturnType<typeof verifyRefreshToken>>;
+      try {
+        rtPayload = await verifyRefreshToken(rawToken);
+      } catch {
+        return c.json({ error: "invalid_grant" }, 400);
+      }
+
+      if (rtPayload.client_id !== clientId) return c.json({ error: "invalid_grant" }, 400);
+
+      if (client.type !== "public") {
+        if (!clientSecret || !safeEqual(client.clientSecret, clientSecret)) {
+          return c.json({ error: "invalid_client" }, 401);
+        }
+      }
+
+      const user = users.get(rtPayload.sub);
+      if (!user) return c.json({ error: "invalid_grant" }, 400);
+
+      // Rotate: issue a fresh refresh token alongside new access + id tokens.
+      const [idToken, accessToken, refreshToken] = await Promise.all([
+        issueIdToken(user, client, undefined),
+        issueAccessToken(user, client, rtPayload.scope),
+        issueRefreshToken(user, client, rtPayload.scope),
+      ]);
+
+      return c.json({
+        access_token: accessToken,
+        id_token: idToken,
+        refresh_token: refreshToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: rtPayload.scope,
+      });
+    }
+
     // ── authorization_code grant ──────────────────────────────────────────────
 
     if (grantType !== "authorization_code") {
@@ -295,9 +339,12 @@ export function createApp(
     const user = users.get(payload.sub);
     if (!user) return c.json({ error: "invalid_grant" }, 400);
 
-    const [idToken, accessToken] = await Promise.all([
+    const wantsRefresh = payload.scope.split(" ").includes("offline_access");
+
+    const [idToken, accessToken, refreshToken] = await Promise.all([
       issueIdToken(user, client, payload.nonce),
       issueAccessToken(user, client, payload.scope),
+      wantsRefresh ? issueRefreshToken(user, client, payload.scope) : Promise.resolve(undefined),
     ]);
 
     return c.json({
@@ -306,6 +353,7 @@ export function createApp(
       token_type: "Bearer",
       expires_in: 3600,
       scope: payload.scope,
+      ...(refreshToken ? { refresh_token: refreshToken } : {}),
     });
   });
 
@@ -326,6 +374,20 @@ export function createApp(
     if (!user) return c.json({ error: "invalid_token" }, 401);
 
     return c.json({ sub: user.email, email: user.email, name: user.name });
+  });
+
+  // ── RP-initiated logout (end_session_endpoint) ────────────────────────────
+
+  app.get("/api/auth/oauth2/logout", (c) => {
+    deleteCookie(c, "nyx_session", { path: "/" });
+    const postLogoutUri = c.req.query("post_logout_redirect_uri");
+    const state = c.req.query("state");
+    if (postLogoutUri) {
+      const dest = new URL(postLogoutUri);
+      if (state) dest.searchParams.set("state", state);
+      return c.redirect(dest.toString());
+    }
+    return c.html("<html><body><p>Logged out.</p></body></html>");
   });
 
   // ── Login page ─────────────────────────────────────────────────────────────
