@@ -1,0 +1,11 @@
+clients:
+  - name: "Vela CI"
+    clientId: vela
+    clientSecret: "enc:ny/zdzBhmQkihYDL02q4gHCC1H+bZd/mLOMsCsic5PdlnIKEo82PDvmR7Sk5/kw="
+    type: web
+    redirectURLs:
+      - "https://vela.prettybird.zapplebee.online/callback"
+    roles:
+      - user
+      - admin
+    skipConsent: true

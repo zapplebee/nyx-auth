@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { auth } from "./auth";
+import { loadClients } from "./clients";
+import { createAuth } from "./auth";
 import adminRouter from "./routes/admin";
+
+// Load + decrypt client config before handling any requests.
+const clients = await loadClients();
+const auth = createAuth(clients);
 
 const app = new Hono();
 
@@ -10,7 +15,6 @@ const trustedOrigins = (process.env.TRUSTED_ORIGINS ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-// CORS for auth endpoints
 app.use(
   "/api/auth/**",
   cors({
@@ -21,22 +25,15 @@ app.use(
   })
 );
 
-// Better Auth handler
 app.on(["GET", "POST"], "/api/auth/**", (c) => auth.handler(c.req.raw));
 
 // ── Login page ─────────────────────────────────────────────────────────────
-// Better Auth OIDC redirects here when unauthenticated.
-// Passes original OIDC query params in the URL.
 app.get("/login", (c) => {
   const qs = c.req.raw.url.split("?")[1] ?? "";
   return c.html(loginHtml(qs));
 });
 
 // ── Consent page ───────────────────────────────────────────────────────────
-// Better Auth OIDC redirects here when consent is required.
-// Params: ?consent_code=<code>&client_id=<id>&scope=<scopes>
-// The consent_code is also set as a signed cookie (oidc_consent_prompt),
-// so we can POST { accept: true } without passing the code explicitly.
 app.get("/consent", (c) => {
   const consentCode = c.req.query("consent_code") ?? "";
   const clientId = c.req.query("client_id") ?? "";
@@ -45,7 +42,7 @@ app.get("/consent", (c) => {
 });
 
 // ── Admin API ──────────────────────────────────────────────────────────────
-app.route("/admin", adminRouter);
+app.route("/admin", adminRouter(auth));
 
 // ── Health ─────────────────────────────────────────────────────────────────
 app.get("/", (c) => c.json({ service: "nyx-auth", status: "ok" }));
@@ -92,7 +89,7 @@ function loginHtml(qs: string): string {
       const btn = document.getElementById('btn');
       const err = document.getElementById('err');
       btn.disabled = true;
-      btn.textContent = 'Signing in…';
+      btn.textContent = 'Signing in\u2026';
       err.style.display = 'none';
       try {
         const res = await fetch('/api/auth/sign-in/email', {
@@ -105,7 +102,6 @@ function loginHtml(qs: string): string {
           credentials: 'include',
         });
         if (res.ok) {
-          // Redirect back to the OIDC authorize endpoint with original params
           window.location.href = '/api/auth/oauth2/authorize?' + qs.toString();
         } else {
           const data = await res.json().catch(() => ({}));
@@ -142,7 +138,7 @@ function consentHtml(consentCode: string, clientId: string, scope: string): stri
     .sub { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
     .scopes { list-style: none; margin-bottom: 1.5rem; }
     .scopes li { font-size: 0.875rem; padding: 0.35rem 0; color: #ccc; }
-    .scopes li::before { content: '✓ '; color: #4ade80; }
+    .scopes li::before { content: '\u2713 '; color: #4ade80; }
     .actions { display: flex; gap: 0.75rem; }
     button { flex: 1; padding: 0.7rem; border: none; border-radius: 6px; font-size: 0.9375rem; font-weight: 500; cursor: pointer; transition: background 0.15s; }
     .approve { background: #3b7cf4; color: #fff; }

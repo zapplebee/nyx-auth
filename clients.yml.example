@@ -1,0 +1,11 @@
+clients:
+  - name: Vela CI
+    clientId: vela
+    clientSecret: "enc:PLACEHOLDER — run: bun run clients:set-secret vela"
+    type: web
+    redirectURLs:
+      - https://vela.prettybird.zapplebee.online/callback
+    roles:
+      - user
+      - admin
+    skipConsent: true

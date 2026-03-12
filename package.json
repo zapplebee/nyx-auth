@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "db:migrate": "bunx --bun @better-auth/cli migrate --config src/auth.ts"
+    "db:migrate": "echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts",
+    "clients:set-secret": "bun scripts/set-client-secret.ts"
   },
   "dependencies": {
     "better-auth": "latest",
