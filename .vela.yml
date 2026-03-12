@@ -24,6 +24,8 @@ services:
       CLIENTS_CONFIG: ./clients.ci.yml
       PORT: "3000"
     commands:
+      # Services start before the clone step — wait for the workspace to be ready
+      - until [ -f package.json ]; do sleep 1; done
       - bun install --frozen-lockfile
       - echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts
       - bun src/index.ts
@@ -37,9 +39,9 @@ services:
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
     commands:
-      - cd test-app
-      - npm install
-      - npx vite --host 0.0.0.0 --port 5173
+      # Wait for the clone step to populate the workspace
+      - until [ -d test-app ]; do sleep 1; done
+      - cd test-app && npm install && npx vite --host 0.0.0.0 --port 5173
 
 steps:
   # Wait for both services to accept connections before running tests
