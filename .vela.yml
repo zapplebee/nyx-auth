@@ -121,4 +121,4 @@ steps:
       registry: harbor.prettybird.zapplebee.online
       repo: harbor.prettybird.zapplebee.online/library/nyx-auth
       tags:
-        - harbor.prettybird.zapplebee.online/library/nyx-auth:${VELA_BUILD_TAG}
+        - harbor.prettybird.zapplebee.online/library/nyx-auth:${VELA_BUILD_TAG##v}
