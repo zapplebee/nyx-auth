@@ -16,13 +16,21 @@ Users and clients are defined in YAML config files. All session state lives in s
 
 ## How it works
 
+**Browser login (authorization code + PKCE)**
+
 1. A client app redirects to `/api/auth/oauth2/authorize`
 2. The user enters email + password, then a TOTP code (unless opted out)
 3. nyx-auth issues a signed authorization code and redirects back
 4. The client exchanges the code for an ID token and access token
 5. The ID token contains `email`, `name`, and per-client `roles`
 
-Standard OIDC authorization code flow with PKCE. Discovery document at `/api/auth/.well-known/openid-configuration`.
+**Machine-to-machine (client credentials)**
+
+1. A service POSTs `grant_type=client_credentials` with its `client_id` and `client_secret`
+2. nyx-auth returns a signed access token — no user, no browser, no session
+3. The token contains `sub: <clientId>`, `roles`, and `scope`
+
+Discovery document at `/api/auth/.well-known/openid-configuration`.
 
 ## Quick start
 

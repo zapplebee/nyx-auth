@@ -10,6 +10,7 @@ Practical patterns for deploying nyx-auth and integrating it with admin panels.
 - [Defining users](#defining-users)
 - [TOTP setup](#totp-setup)
 - [Connecting a client app](#connecting-a-client-app)
+- [Machine-to-machine tokens (client credentials)](#machine-to-machine-tokens-client-credentials)
 - [Using roles](#using-roles)
 - [Rotating secrets](#rotating-secrets)
 - [Docker deployment](#docker-deployment)
@@ -184,6 +185,106 @@ scopes:          openid profile email
 ```
 
 > The `issuer` is the value of `NYX_URL` exactly (e.g. `https://auth.example.com`). Discovery is at `<issuer>/api/auth/.well-known/openid-configuration`.
+
+---
+
+## Machine-to-machine tokens (client credentials)
+
+The OAuth2 client credentials grant lets a service authenticate as itself — no user login, no browser, no session. Use this for cron jobs, backend services, CI pipelines, or any process that needs to call a protected API.
+
+### Client config
+
+Machine clients are defined in `clients.yml` like any other client. They do not need `redirectURLs` and should not be marked `public`:
+
+```yaml
+clients:
+  - name: Deployment Bot
+    clientId: deploy-bot
+    clientSecret: "enc:..."        # set with: bun run clients:set-secret deploy-bot
+    type: web
+    redirectURLs: []
+    roles:
+      - deploy
+      - read
+```
+
+The `roles` field defines what roles appear in machine tokens for this client. There is no user involved, so roles come entirely from the client config.
+
+### Requesting a token
+
+Send a `POST` to the token endpoint with `grant_type=client_credentials`:
+
+```bash
+curl -X POST https://auth.example.com/api/auth/oauth2/token \
+  -d grant_type=client_credentials \
+  -d client_id=deploy-bot \
+  -d client_secret=your-plain-text-secret \
+  -d scope=deploy
+```
+
+Or using HTTP Basic authentication:
+
+```bash
+curl -X POST https://auth.example.com/api/auth/oauth2/token \
+  -u deploy-bot:your-plain-text-secret \
+  -d grant_type=client_credentials \
+  -d scope=deploy
+```
+
+Response:
+
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "deploy"
+}
+```
+
+No `id_token` is returned — there is no user.
+
+### Token claims
+
+The access token contains:
+
+```json
+{
+  "sub": "deploy-bot",
+  "client_id": "deploy-bot",
+  "scope": "deploy",
+  "roles": ["deploy", "read"],
+  "iss": "https://auth.example.com",
+  "aud": "https://auth.example.com"
+}
+```
+
+### Verifying a machine token
+
+Machine tokens use the same signing key and issuer as user tokens. Verify them the same way:
+
+```typescript
+import { jwtVerify, createRemoteJWKSet } from "jose";
+
+const JWKS = createRemoteJWKSet(new URL("https://auth.example.com/api/auth/jwks.json"));
+
+const { payload } = await jwtVerify(token, JWKS, {
+  issuer: "https://auth.example.com",
+  audience: "https://auth.example.com",
+});
+
+// Distinguish machine tokens from user tokens:
+if (payload.client_id && !payload.email) {
+  // machine token — payload.sub is the clientId
+} else {
+  // user token — payload.sub is the user's email
+}
+```
+
+### Restrictions
+
+- `public` clients cannot use the client credentials grant. A machine token requires a verified secret.
+- Machine tokens are not accepted by the userinfo endpoint — there is no user to describe.
 
 ---
 

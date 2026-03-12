@@ -1,11 +1,19 @@
 clients:
-  - name: Vela CI
-    clientId: vela
-    clientSecret: "enc:PLACEHOLDER — run: bun run clients:set-secret vela"
+  # Browser app — authorization code flow
+  - name: Admin Panel
+    clientId: admin-panel
+    clientSecret: "enc:PLACEHOLDER — run: bun run clients:set-secret admin-panel"
     type: web
     redirectURLs:
-      - https://vela.prettybird.zapplebee.online/callback
-    roles:
-      - user
-      - admin
+      - https://admin.example.com/callback
     skipConsent: true
+
+  # Machine client — client credentials flow
+  - name: Deploy Bot
+    clientId: deploy-bot
+    clientSecret: "enc:PLACEHOLDER — run: bun run clients:set-secret deploy-bot"
+    type: web
+    redirectURLs: []
+    roles:
+      - deploy
+      - read

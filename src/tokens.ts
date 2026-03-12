@@ -172,6 +172,29 @@ export async function issueAccessToken(
 }
 
 /**
+ * Issue an access token for the client_credentials grant.
+ * Sub is the client_id (no user involved). Roles come from the client config.
+ */
+export async function issueClientCredentialsToken(
+  client: ClientConfig,
+  scope: string
+): Promise<string> {
+  const { privateKey, kid } = await getKeys();
+  return new SignJWT({
+    sub: client.clientId,
+    client_id: client.clientId,
+    scope,
+    roles: client.roles ?? [],
+  })
+    .setProtectedHeader({ alg: "ES256", kid })
+    .setIssuer(getIssuer())
+    .setAudience(getIssuer())
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(privateKey);
+}
+
+/**
  * Verify an access token and return its payload. Throws if invalid/expired.
  * Used by the userinfo endpoint.
  */

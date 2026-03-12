@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { generate as totpGenerate } from "otplib";
 import { createApp } from "../src/router";
 import { resetKeysForTest } from "../src/keys";
+import { unsafeDecodePayload } from "../src/tokens";
 import type { ClientConfig } from "../src/clients";
 import type { UserConfig } from "../src/users";
 import { OTP_OUT } from "../src/users";
@@ -32,7 +33,27 @@ const testUsers = new Map<string, UserConfig>([
   ["bob@example.com", userOptOut],
 ]);
 
-const testClients = new Map<string, ClientConfig>();
+const machineClient: ClientConfig = {
+  name: "My Service",
+  clientId: "my-service",
+  clientSecret: "machine-secret",
+  type: "web",
+  redirectURLs: [],
+  roles: ["read", "write"],
+};
+
+const publicClient: ClientConfig = {
+  name: "My SPA",
+  clientId: "my-spa",
+  clientSecret: "",
+  type: "public",
+  redirectURLs: ["https://app.example.com/callback"],
+};
+
+const testClients = new Map<string, ClientConfig>([
+  ["my-service", machineClient],
+  ["my-spa", publicClient],
+]);
 
 beforeEach(() => {
   process.env.NYX_URL = "http://test.nyx.local";
@@ -180,5 +201,119 @@ describe("TOTP login flow", () => {
     const code = await totpGenerate({ secret: TOTP_SEED });
     const totpRes = await totpRequest(app, { pendingToken: "", code });
     expect(totpRes.status).toBe(401);
+  });
+});
+
+// ── Client credentials grant ──────────────────────────────────────────────────
+
+function tokenRequest(app: ReturnType<typeof createApp>, body: Record<string, string>) {
+  const params = new URLSearchParams(body);
+  return app.request("/api/auth/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+}
+
+describe("client_credentials grant", () => {
+  it("issues an access token with correct claims", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-service",
+      client_secret: "machine-secret",
+      scope: "api:read api:write",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.token_type).toBe("Bearer");
+    expect(body.expires_in).toBe(3600);
+    expect(body.scope).toBe("api:read api:write");
+    expect(typeof body.access_token).toBe("string");
+
+    const payload = unsafeDecodePayload(body.access_token);
+    expect(payload.sub).toBe("my-service");
+    expect(payload.client_id).toBe("my-service");
+    expect(payload.roles).toEqual(["read", "write"]);
+    expect(payload.scope).toBe("api:read api:write");
+  });
+
+  it("does not include an id_token in the response", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-service",
+      client_secret: "machine-secret",
+    });
+    const body = await res.json();
+    expect(body.id_token).toBeUndefined();
+  });
+
+  it("accepts credentials via Basic Authorization header", async () => {
+    const app = createApp(testClients, testUsers);
+    const encoded = Buffer.from("my-service:machine-secret").toString("base64");
+    const res = await app.request("/api/auth/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": `Basic ${encoded}`,
+      },
+      body: "grant_type=client_credentials",
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects unknown client", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "unknown",
+      client_secret: "whatever",
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("invalid_client");
+  });
+
+  it("rejects wrong client secret", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-service",
+      client_secret: "wrong-secret",
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("invalid_client");
+  });
+
+  it("rejects missing client secret", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-service",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects public clients", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-spa",
+      client_secret: "",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("unauthorized_client");
+  });
+
+  it("rejects unsupported grant type", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "password",
+      client_id: "my-service",
+      client_secret: "machine-secret",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("unsupported_grant_type");
   });
 });

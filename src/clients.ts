@@ -14,6 +14,8 @@ export interface ClientConfig {
   type?: "web" | "native" | "user-agent-based" | "public";
   redirectURLs: string[];
   skipConsent?: boolean;
+  /** Roles included in machine tokens issued via the client_credentials grant. */
+  roles?: string[];
 }
 
 interface ClientsFile {

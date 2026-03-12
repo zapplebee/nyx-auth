@@ -66,6 +66,43 @@ describe("nyx-auth pipeline smoke tests", () => {
     });
   });
 
+  it("client_credentials grant issues a machine access token", () => {
+    cy.request({
+      method: "POST",
+      url: AUTH_URL + "/api/auth/oauth2/token",
+      form: true,
+      body: {
+        grant_type: "client_credentials",
+        client_id: "ci-machine",
+        client_secret: "ci-machine-secret",
+        scope: "api:read",
+      },
+    }).then((response) => {
+      expect(response.status).to.eq(200);
+      expect(response.body.token_type).to.eq("Bearer");
+      expect(response.body.expires_in).to.eq(3600);
+      expect(response.body.access_token).to.be.a("string");
+      expect(response.body.id_token).to.be.undefined;
+    });
+  });
+
+  it("client_credentials rejects wrong secret", () => {
+    cy.request({
+      method: "POST",
+      url: AUTH_URL + "/api/auth/oauth2/token",
+      form: true,
+      body: {
+        grant_type: "client_credentials",
+        client_id: "ci-machine",
+        client_secret: "wrong",
+      },
+      failOnStatusCode: false,
+    }).then((response) => {
+      expect(response.status).to.eq(401);
+      expect(response.body.error).to.eq("invalid_client");
+    });
+  });
+
   it("correct password returns requiresTotp for a TOTP user", () => {
     cy.request({
       method: "POST",

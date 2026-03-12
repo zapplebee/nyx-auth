@@ -7,6 +7,7 @@ import {
   decodeAuthCode,
   issueIdToken,
   issueAccessToken,
+  issueClientCredentialsToken,
   verifyAccessToken,
   issuePendingTotpToken,
   verifyPendingTotpToken,
@@ -171,6 +172,48 @@ describe("access tokens", () => {
     const token = await issueAccessToken(testUser, testClient, "openid");
     const tampered = token.slice(0, -5) + "XXXXX";
     await expect(verifyAccessToken(tampered)).rejects.toThrow();
+  });
+});
+
+// ── Client credentials tokens ─────────────────────────────────────────────────
+
+describe("client credentials tokens", () => {
+  const machineClient: ClientConfig = {
+    ...testClient,
+    clientId: "my-service",
+    roles: ["read", "write"],
+  };
+
+  it("contains expected claims", async () => {
+    const token = await issueClientCredentialsToken(machineClient, "api:read");
+    const payload = unsafeDecodePayload(token);
+    expect(payload.sub).toBe("my-service");
+    expect(payload.client_id).toBe("my-service");
+    expect(payload.scope).toBe("api:read");
+    expect(payload.roles).toEqual(["read", "write"]);
+    expect(payload.iss).toBe(TEST_ISSUER);
+    expect(payload.aud).toBe(TEST_ISSUER);
+  });
+
+  it("token verifies as a valid access token", async () => {
+    const token = await issueClientCredentialsToken(machineClient, "api:read");
+    const payload = await verifyAccessToken(token);
+    expect(payload.sub).toBe("my-service");
+    expect(payload.scope).toBe("api:read");
+  });
+
+  it("uses empty roles array when client has none", async () => {
+    const noRolesClient: ClientConfig = { ...machineClient, roles: undefined };
+    const token = await issueClientCredentialsToken(noRolesClient, "");
+    const payload = unsafeDecodePayload(token);
+    expect(payload.roles).toEqual([]);
+  });
+
+  it("does not contain email or name claims", async () => {
+    const token = await issueClientCredentialsToken(machineClient, "api:read");
+    const payload = unsafeDecodePayload(token);
+    expect(payload.email).toBeUndefined();
+    expect(payload.name).toBeUndefined();
   });
 });
 

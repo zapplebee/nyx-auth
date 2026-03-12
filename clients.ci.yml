@@ -10,3 +10,13 @@ clients:
     roles:
       - user
     skipConsent: true
+
+  - name: CI Machine Client
+    clientId: ci-machine
+    # "ci-machine-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
+    clientSecret: "enc:OtzyE4gIagccBTAR7OpFLrvZdN7F2L9Fk/KFps7JQWCIyxZGVwUb/DujkwUT"
+    type: web
+    redirectURLs: []
+    roles:
+      - read
+      - write

@@ -16,6 +16,7 @@ import {
   decodeAuthCode,
   issueIdToken,
   issueAccessToken,
+  issueClientCredentialsToken,
   verifyAccessToken,
   issuePendingTotpToken,
   verifyPendingTotpToken,
@@ -73,6 +74,7 @@ export function createApp(
       userinfo_endpoint: `${issuer}/api/auth/userinfo`,
       jwks_uri: `${issuer}/api/auth/jwks.json`,
       response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "client_credentials"],
       subject_types_supported: ["public"],
       id_token_signing_alg_values_supported: ["ES256"],
       scopes_supported: ["openid", "profile", "email"],
@@ -82,7 +84,7 @@ export function createApp(
         "none",
       ],
       code_challenge_methods_supported: ["S256"],
-      claims_supported: ["sub", "email", "name", "roles", "nonce"],
+      claims_supported: ["sub", "email", "name", "roles", "nonce", "client_id"],
     });
   });
 
@@ -219,14 +221,7 @@ export function createApp(
     const body = await c.req.parseBody();
     const grantType = body.grant_type as string;
 
-    if (grantType !== "authorization_code") {
-      return c.json({ error: "unsupported_grant_type" }, 400);
-    }
-
-    const code = body.code as string;
-    const redirectUri = body.redirect_uri as string;
-    const codeVerifier = body.code_verifier as string | undefined;
-
+    // Resolve client credentials from body or Authorization header (both grant types)
     let clientId = body.client_id as string | undefined;
     let clientSecret = body.client_secret as string | undefined;
 
@@ -240,6 +235,39 @@ export function createApp(
 
     const client = clients.get(clientId ?? "");
     if (!client) return c.json({ error: "invalid_client" }, 401);
+
+    // ── client_credentials grant ──────────────────────────────────────────────
+
+    if (grantType === "client_credentials") {
+      // Public clients cannot use client_credentials — there is no user context
+      // to justify issuing a machine token without a verified secret.
+      if (client.type === "public") {
+        return c.json({ error: "unauthorized_client" }, 400);
+      }
+      if (!clientSecret || !safeEqual(client.clientSecret, clientSecret)) {
+        return c.json({ error: "invalid_client" }, 401);
+      }
+
+      const scope = (body.scope as string | undefined) ?? "";
+      const accessToken = await issueClientCredentialsToken(client, scope);
+
+      return c.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope,
+      });
+    }
+
+    // ── authorization_code grant ──────────────────────────────────────────────
+
+    if (grantType !== "authorization_code") {
+      return c.json({ error: "unsupported_grant_type" }, 400);
+    }
+
+    const code = body.code as string;
+    const redirectUri = body.redirect_uri as string;
+    const codeVerifier = body.code_verifier as string | undefined;
 
     if (client.type !== "public" && clientSecret !== undefined) {
       if (!safeEqual(client.clientSecret, clientSecret)) {
