@@ -14,38 +14,35 @@ secrets:
 # throughout all steps. Uses a fixed CI-only secret and pre-encrypted
 # client config so no runtime secret generation is needed.
 services:
-  # nyx-auth service — override entrypoint so shell commands run correctly
-  # (oven/bun image has ENTRYPOINT ["bun"] which would consume our commands)
+  # nyx-auth service — override entrypoint so shell commands run correctly.
+  # oven/bun has ENTRYPOINT ["bun"]; when Vela sets an explicit entrypoint,
+  # commands are NOT appended automatically — the full script goes in entrypoint.
   - name: nyx-auth
     image: oven/bun:1.3.5
     pull: always
     entrypoint:
       - /bin/sh
       - -c
+      - "until [ -f package.json ]; do sleep 1; done && bun install --frozen-lockfile && echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts && bun src/index.ts"
     environment:
       BETTER_AUTH_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       BETTER_AUTH_URL: http://nyx-auth:3000
       TRUSTED_ORIGINS: http://test-app:5173
       CLIENTS_CONFIG: ./clients.ci.yml
       PORT: "3000"
-    commands:
-      # Single string so /bin/sh -c receives exactly one argument
-      - "until [ -f package.json ]; do sleep 1; done && bun install --frozen-lockfile && echo y | bunx --bun @better-auth/cli migrate --config src/auth.ts && bun src/index.ts"
 
-  # Vite dev server for the oidc-client-ts test page
-  # node image also has a wrapper entrypoint — override it the same way
+  # Vite dev server for the oidc-client-ts test page — same entrypoint approach
   - name: test-app
     image: node:20-alpine
     pull: always
     entrypoint:
       - /bin/sh
       - -c
+      - "until [ -d test-app ]; do sleep 1; done && cd test-app && npm install && npx vite --host 0.0.0.0 --port 5173"
     environment:
       VITE_AUTH_URL: http://nyx-auth:3000
       VITE_CLIENT_ID: ci-test
       VITE_REDIRECT_URI: http://test-app:5173/callback
-    commands:
-      - "until [ -d test-app ]; do sleep 1; done && cd test-app && npm install && npx vite --host 0.0.0.0 --port 5173"
 
 steps:
   # Wait for both services to accept connections before running tests.
