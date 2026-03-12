@@ -14,7 +14,7 @@ clients:
   - name: CI Cookie Test Client
     clientId: ci-cookie-test
     # "ci-cookie-test-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
-    clientSecret: "enc:DRLplRUt/U4wMvAXAyPK2CgEymljHZJ+iY8/FLxWmhtuAImM6BMTtjn5TI8dmBmz2Q=="
+    clientSecret: "enc:WDPESIWA1Z9ZGMEGs5my6Q8efj4E++2owjNspb55gfk9N+boKW+Zhr+Przb4DCMGKA=="
     type: web
     redirectURLs:
       - http://cookie-test-app:5174/callback
