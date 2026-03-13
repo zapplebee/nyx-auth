@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@cypress/code-coverage": "^4.0.1",
-    "cypress": "^13.0.0",
+    "cypress": "^15.10.0",
     "otplib": "^13.3.0"
   }
 }
