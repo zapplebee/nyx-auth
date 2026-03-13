@@ -550,3 +550,81 @@ describe("OIDC discovery document", () => {
     expect(body.scopes_supported).toContain("offline_access");
   });
 });
+
+// ── Custom claims via userinfo endpoint ───────────────────────────────────────
+
+describe("custom claims via userinfo", () => {
+  const userWithClaims: UserConfig = {
+    email: "carol@example.com",
+    name: "Carol",
+    password: "carols-password",
+    otpSeed: OTP_OUT,
+    clients: [{ clientId: "my-app", roles: ["user"] }],
+    claims: { oid: "tenant-object-id", tid: "tenant-id", groups: ["g1", "g2"] },
+  };
+
+  const usersWithClaims = new Map([
+    ...testUsers,
+    ["carol@example.com", userWithClaims],
+  ]);
+
+  it("userinfo returns custom claims alongside standard claims", async () => {
+    const app = createApp(testClients, usersWithClaims, { failedLoginDelayMs: DELAY_MS });
+
+    // Login to get session, then get an access token via the auth code flow
+    const cookie = await getSessionCookie(app, "carol@example.com", "carols-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile",
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const { access_token } = await tokenRes.json();
+
+    const userInfoRes = await app.request("/api/auth/userinfo", {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    const body = await userInfoRes.json();
+
+    expect(userInfoRes.status).toBe(200);
+    expect(body.sub).toBe("carol@example.com");
+    expect(body.oid).toBe("tenant-object-id");
+    expect(body.tid).toBe("tenant-id");
+    expect(body.groups).toEqual(["g1", "g2"]);
+  });
+
+  it("id_token contains custom claims", async () => {
+    const app = createApp(testClients, usersWithClaims, { failedLoginDelayMs: DELAY_MS });
+
+    const cookie = await getSessionCookie(app, "carol@example.com", "carols-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid",
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const { id_token } = await tokenRes.json();
+    const payload = unsafeDecodePayload(id_token);
+
+    expect(payload.oid).toBe("tenant-object-id");
+    expect(payload.tid).toBe("tenant-id");
+    expect(payload.groups).toEqual(["g1", "g2"]);
+    // Standard claims still correct
+    expect(payload.sub).toBe("carol@example.com");
+    expect(payload.email).toBe("carol@example.com");
+  });
+});

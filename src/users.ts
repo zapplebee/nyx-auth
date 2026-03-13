@@ -22,6 +22,13 @@ export interface UserConfig {
   /** Base32 TOTP secret (decrypted), or OPT_OUT, or undefined (treated as OPT_OUT). */
   otpSeed?: string;
   clients: UserClientEntry[];
+  /**
+   * Arbitrary extra claims included verbatim in the ID token and access token.
+   * Use this to emulate IdP-specific fields (e.g. Microsoft Entra's `oid`,
+   * `tid`, `groups`, `given_name`). Standard claims (sub, email, name, roles,
+   * iss, aud, iat, exp) always override any matching key defined here.
+   */
+  claims?: Record<string, unknown>;
 }
 
 /** Returns true when the user must present a TOTP code at login. */

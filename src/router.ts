@@ -199,7 +199,7 @@ export function createApp(
 
     const result =
       user && requiresTotp(user)
-        ? await totpVerify({ token: code, secret: user.otpSeed!, window: 1 })
+        ? await totpVerify({ token: code, secret: user.otpSeed!, window: 2 })
         : null;
     const totpOk = result?.valid === true;
 
@@ -373,7 +373,7 @@ export function createApp(
     const user = users.get(payload.sub as string);
     if (!user) return c.json({ error: "invalid_token" }, 401);
 
-    return c.json({ sub: user.email, email: user.email, name: user.name });
+    return c.json({ ...(user.claims ?? {}), sub: user.email, email: user.email, name: user.name });
   });
 
   // ── RP-initiated logout (end_session_endpoint) ────────────────────────────
