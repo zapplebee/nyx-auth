@@ -57,6 +57,8 @@ The script prompts for the plain-text secret, encrypts it with AES-256-GCM, and 
 
 For public clients, omit `clientSecret` entirely and ensure the client sends a PKCE `code_challenge` with every authorize request.
 
+> **Production redirect URIs:** When `NODE_ENV=production`, `redirectURLs` that use `http://` are rejected at startup unless the host is a loopback address (`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`). All production redirect URIs should use `https://`.
+
 ---
 
 ## Defining users
@@ -168,6 +170,24 @@ users:
 ```
 
 Standard claims always override any matching key in `claims`.
+
+#### Naming convention for custom claim keys
+
+Short, unnamespaced identifiers (`oid`, `tid`, `groups`) are accepted as-is.
+
+For URI-namespaced claims the path components must use **kebab-case** — not camelCase:
+
+```yaml
+claims:
+  # ✓ correct
+  https://example.com/tenant-id: "abc"
+  https://example.com/email-verification: true
+
+  # ✗ rejected at startup (camelCase path component)
+  https://example.com/tenantId: "abc"
+```
+
+nyx-auth validates claim key names at startup and will exit with an error if a URI-style key contains camelCase. Run `bun run validate:config` to check without starting the server.
 
 ---
 
@@ -501,7 +521,7 @@ users:
 Run nyx-auth pointed at these files:
 
 ```bash
-NYX_SECRET=test-secret NYX_URL=http://localhost:3001 \
+NYX_SECRET=$(openssl rand -base64 32) NYX_URL=http://localhost:3001 \
   CLIENTS_CONFIG=./clients.test.yml USERS_CONFIG=./users.test.yml \
   bun run start
 ```
@@ -766,7 +786,7 @@ nyx-auth validates its environment and config files before serving any requests.
 
 On startup, nyx-auth checks:
 
-- **`NYX_SECRET`** is set and at least 32 characters long
+- **`NYX_SECRET`** is set, is valid base64, and decodes to exactly 32 bytes
 - **`NYX_URL`** is set and is a valid URL; when `NODE_ENV=production`, it must use HTTPS
 
 Example output when `NYX_SECRET` is missing and `NYX_URL` is invalid:
@@ -790,11 +810,13 @@ After loading `clients.yml` and `users.yml`, nyx-auth validates:
 - `type` is one of `web`, `native`, `user-agent-based`, or `public`
 - Non-public clients have a `clientSecret` set
 - All `redirectURLs` are well-formed absolute URLs
+- When `NODE_ENV=production`, `redirectURLs` that use `http://` are rejected unless the host is a loopback address (`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`) — per [RFC 6749 §10.6](https://datatracker.ietf.org/doc/html/rfc6749#section-10.6)
 
 **Users:**
 - At least one user is defined
 - `email` is a valid email address with no duplicates
 - `name` and `password` are non-empty
+- URI-style `claims` keys must use kebab-case path components (see [Custom claims](#custom-claims))
 
 Any validation error exits with a non-zero status code and a message pointing to the specific field and the fix.
 
@@ -907,7 +929,7 @@ The `kid` field is derived from the JWK. Add one manually if you want predictabl
 
 | Variable | Required | Description |
 |---|---|---|
-| `NYX_SECRET` | Yes | Master encryption key for all `enc:` values in `clients.yml` and `users.yml`. Must be **at least 32 characters**. Generate with `openssl rand -base64 32`. Never commit this value. |
+| `NYX_SECRET` | Yes | Master encryption key for all `enc:` values in `clients.yml` and `users.yml`. Must be a **base64-encoded value that decodes to exactly 32 bytes**. Generate with `openssl rand -base64 32`. Never commit this value. |
 | `NYX_URL` | Yes | Public URL of this service (e.g. `https://auth.example.com`). Used as the OIDC issuer. Must be HTTPS when `NODE_ENV=production`. |
 | `NODE_ENV` | No | Set to `production` to enforce HTTPS on `NYX_URL`. Recommended for all production deployments. |
 | `TRUSTED_ORIGINS` | No | Comma-separated CORS origins allowed to call `/api/auth/*`. Defaults to `*` if not set. |

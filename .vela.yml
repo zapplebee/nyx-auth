@@ -29,7 +29,7 @@ services:
       - -c
       - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun scripts/build-coverage.ts && bun dist-coverage/index.js"
     environment:
-      NYX_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
+      NYX_SECRET: Y2ktbnl4LWF1dGgtdGVzdC1zZWNyZXQta2V5LTIwMjY=
       NYX_URL: http://nyx-auth:3000
       TRUSTED_ORIGINS: http://test-app:5173,http://cookie-test-app:5174
       CLIENTS_CONFIG: ./clients.ci.yml

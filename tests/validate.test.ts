@@ -1,8 +1,8 @@
 // Tests for src/validate.ts
 // Ref: https://github.com/zapplebee/nyx-auth/issues/14
 
-import { describe, it, expect } from "bun:test";
-import { validateClients, validateUsers, validateConfig } from "../src/validate";
+import { describe, it, expect, afterEach } from "bun:test";
+import { validateClients, validateUsers, validateConfig, validateClaimKey } from "../src/validate";
 import type { ClientConfig } from "../src/clients";
 import type { UserConfig } from "../src/users";
 import { OTP_OUT } from "../src/users";
@@ -150,6 +150,166 @@ describe("validateUsers", () => {
       userMap(makeUser({ name: "", password: "", email: "bad" }))
     );
     expect(errors.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── http redirect URI rejection in production (ref: https://github.com/zapplebee/nyx-auth/issues/12) ──
+
+describe("validateClients — http redirect URIs in production", () => {
+  const savedNodeEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    if (savedNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = savedNodeEnv;
+    }
+  });
+
+  it("accepts https:// redirect URIs in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["https://app.example.com/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("accepts http:// redirect URIs when not in production", () => {
+    delete process.env.NODE_ENV;
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://app.example.com/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("rejects non-localhost http:// redirect URIs in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://app.example.com/callback"] }))
+    );
+    expect(errors.some((e) => e.includes("http://") && e.includes("not allowed in production"))).toBe(true);
+  });
+
+  it("allows http://localhost in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://localhost:3000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://127.0.0.1 in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://127.0.0.1:8080/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://0.0.0.0 in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://0.0.0.0:4000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://[::1] in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://[::1]:9000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("includes RFC 6749 §10.6 reference in the error message", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://evil.example.com/callback"] }))
+    );
+    expect(errors.some((e) => e.includes("RFC 6749"))).toBe(true);
+  });
+});
+
+// ── validateClaimKey (ref: https://github.com/zapplebee/nyx-auth/issues/21) ──
+
+describe("validateClaimKey", () => {
+  it("accepts plain short identifiers", () => {
+    expect(validateClaimKey("oid")).toBeUndefined();
+    expect(validateClaimKey("tid")).toBeUndefined();
+    expect(validateClaimKey("groups")).toBeUndefined();
+  });
+
+  it("accepts URI claim keys with kebab-case path components", () => {
+    expect(validateClaimKey("https://example.com/email-verification")).toBeUndefined();
+    expect(validateClaimKey("https://example.com/tenant-id")).toBeUndefined();
+    expect(validateClaimKey("https://example.com/my-app/user-role")).toBeUndefined();
+  });
+
+  it("rejects URI claim keys with camelCase path components", () => {
+    const err = validateClaimKey("https://example.com/emailVerification");
+    expect(err).toBeDefined();
+    expect(err).toContain("camelCase");
+    expect(err).toContain("email-verification");
+  });
+
+  it("includes the suggested kebab-case form in the error", () => {
+    const err = validateClaimKey("https://example.com/userDisplayName");
+    expect(err).toContain("user-display-name");
+  });
+
+  it("rejects camelCase in nested path segments", () => {
+    const err = validateClaimKey("https://example.com/myApp/userRole");
+    expect(err).toBeDefined();
+    // First offending segment (myApp) is reported
+    expect(err).toContain("camelCase");
+  });
+
+  it("accepts URI with all-lowercase path components", () => {
+    expect(validateClaimKey("https://example.com/user")).toBeUndefined();
+    expect(validateClaimKey("https://example.com/app/role")).toBeUndefined();
+  });
+});
+
+// ── validateUsers custom claims integration ───────────────────────────────────
+
+describe("validateUsers custom claims", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/21
+  it("accepts users with no custom claims", () => {
+    expect(validateUsers(userMap(makeUser()))).toEqual([]);
+  });
+
+  it("accepts users with valid plain-identifier custom claims", () => {
+    const errors = validateUsers(
+      userMap(makeUser({ claims: { oid: "abc", tid: "xyz", groups: ["g1"] } }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("accepts users with valid URI-style kebab-case custom claims", () => {
+    const errors = validateUsers(
+      userMap(makeUser({ claims: { "https://example.com/tenant-id": "abc" } }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("errors when a URI claim key uses camelCase", () => {
+    const errors = validateUsers(
+      userMap(makeUser({ claims: { "https://example.com/tenantId": "abc" } }))
+    );
+    expect(errors.some((e) => e.includes("tenantId") && e.includes("camelCase"))).toBe(true);
+  });
+
+  it("collects errors for all invalid claim keys", () => {
+    const errors = validateUsers(
+      userMap(makeUser({
+        claims: {
+          "https://example.com/tenantId": "abc",
+          "https://example.com/userId": "def",
+        },
+      }))
+    );
+    expect(errors.filter((e) => e.includes("camelCase")).length).toBe(2);
   });
 });
 

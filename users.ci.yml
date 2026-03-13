@@ -1,10 +1,10 @@
 users:
   - email: ci@nyx.test
     name: CI Test User
-    # "TestPass1234!" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
-    password: "enc:JdptaEsmDIISWnBhhsaSagz+N3DMxSquMWofRkyOq3TL5Jgv05dJPZQ="
+    # "TestPass1234!" encrypted with NYX_SECRET=Y2ktbnl4LWF1dGgtdGVzdC1zZWNyZXQta2V5LTIwMjY=
+    password: "enc:gIZhtzC9wZuF9L0oeDwm3RcFhqvUXIB71uxfokGou6gVyKRnS+jsMzo="
     # "5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M" (base32 TOTP seed) encrypted with the same secret
-    otpSeed: "enc:wEqIV3g0a8NSg1RIrxqvxQg4/wCPMAjGqMvxNNSFrsMfFG30s035Ed8JHTcjU5x0xw7wNKSzT2c0xUx2"
+    otpSeed: "enc:alERQYEmojpvoKPT/Rhrt3Azl4uYqcKjgHoISjaak8yv26MTlb/RijJtJHoAITJLjlW6MOh1XSWOntsB"
     clients:
       - clientId: ci-test
         roles:
