@@ -47,20 +47,17 @@ export function validateEnvironment(): string[] {
   if (!url) {
     errors.push(
       "NYX_URL is not set.\n" +
-      "  NYX_URL is the public HTTPS URL of this service and is used as the OIDC issuer.\n" +
+      "  NYX_URL is the public URL of this service and is used as the OIDC issuer.\n" +
       "  Example: NYX_URL=https://auth.example.com"
     );
   } else {
     try {
       const parsed = new URL(url);
-      const isLocalhost =
-        parsed.hostname === "localhost" ||
-        parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "::1";
-      if (parsed.protocol !== "https:" && !isLocalhost) {
+      const isProduction = process.env.NODE_ENV === "production";
+      if (isProduction && parsed.protocol !== "https:") {
         errors.push(
-          `NYX_URL must use HTTPS for non-localhost origins (got: ${url}).\n` +
-          "  HTTP is only permitted for localhost (development / CI)."
+          `NYX_URL must use HTTPS in production (got: ${url}).\n` +
+          "  Set NODE_ENV=production only when running behind a real TLS terminator."
         );
       }
     } catch {

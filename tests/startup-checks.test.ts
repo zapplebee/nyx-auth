@@ -29,12 +29,12 @@ afterEach(() => {
 
 describe("validateEnvironment — NYX_SECRET", () => {
   it("returns no errors when NYX_SECRET is >= 32 chars and NYX_URL is valid", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "https://auth.example.com" });
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "https://auth.example.com", NODE_ENV: undefined });
     expect(validateEnvironment()).toEqual([]);
   });
 
   it("errors when NYX_SECRET is not set", () => {
-    setEnv({ NYX_SECRET: undefined, NYX_URL: "https://auth.example.com" });
+    setEnv({ NYX_SECRET: undefined, NYX_URL: "https://auth.example.com", NODE_ENV: undefined });
     const errors = validateEnvironment();
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("NYX_SECRET is not set");
@@ -42,7 +42,7 @@ describe("validateEnvironment — NYX_SECRET", () => {
   });
 
   it("errors when NYX_SECRET is shorter than 32 characters", () => {
-    setEnv({ NYX_SECRET: "short", NYX_URL: "https://auth.example.com" });
+    setEnv({ NYX_SECRET: "short", NYX_URL: "https://auth.example.com", NODE_ENV: undefined });
     const errors = validateEnvironment();
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("NYX_SECRET is too short");
@@ -51,51 +51,56 @@ describe("validateEnvironment — NYX_SECRET", () => {
   });
 
   it("passes when NYX_SECRET is exactly 32 characters", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "https://auth.example.com" });
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "https://auth.example.com", NODE_ENV: undefined });
     expect(validateEnvironment()).toEqual([]);
   });
 
   it("passes when NYX_SECRET is longer than 32 characters", () => {
-    setEnv({ NYX_SECRET: "a".repeat(64), NYX_URL: "https://auth.example.com" });
+    setEnv({ NYX_SECRET: "a".repeat(64), NYX_URL: "https://auth.example.com", NODE_ENV: undefined });
     expect(validateEnvironment()).toEqual([]);
   });
 });
 
 describe("validateEnvironment — NYX_URL", () => {
   it("errors when NYX_URL is not set", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: undefined });
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: undefined, NODE_ENV: undefined });
     const errors = validateEnvironment();
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("NYX_URL is not set");
   });
 
   it("errors when NYX_URL is not a valid URL", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "not-a-url" });
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "not-a-url", NODE_ENV: undefined });
     const errors = validateEnvironment();
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("NYX_URL is not a valid URL");
     expect(errors[0]).toContain("not-a-url");
   });
 
-  it("errors when NYX_URL uses HTTP for a non-localhost origin", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://auth.example.com" });
-    const errors = validateEnvironment();
-    expect(errors.length).toBe(1);
-    expect(errors[0]).toContain("NYX_URL must use HTTPS");
-  });
-
-  it("allows HTTP for localhost", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://localhost:3000" });
+  it("allows HTTP when NODE_ENV is not production", () => {
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://auth.example.com", NODE_ENV: undefined });
     expect(validateEnvironment()).toEqual([]);
   });
 
-  it("allows HTTP for 127.0.0.1", () => {
-    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://127.0.0.1:3000" });
+  it("allows HTTP for any hostname when NODE_ENV is not production", () => {
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://nyx-auth:3000", NODE_ENV: "test" });
+    expect(validateEnvironment()).toEqual([]);
+  });
+
+  it("errors when NODE_ENV=production and NYX_URL uses HTTP", () => {
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "http://auth.example.com", NODE_ENV: "production" });
+    const errors = validateEnvironment();
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain("NYX_URL must use HTTPS in production");
+  });
+
+  it("passes when NODE_ENV=production and NYX_URL uses HTTPS", () => {
+    setEnv({ NYX_SECRET: "a".repeat(32), NYX_URL: "https://auth.example.com", NODE_ENV: "production" });
     expect(validateEnvironment()).toEqual([]);
   });
 
   it("reports all errors at once when multiple vars are invalid", () => {
-    setEnv({ NYX_SECRET: undefined, NYX_URL: undefined });
+    setEnv({ NYX_SECRET: undefined, NYX_URL: undefined, NODE_ENV: undefined });
     const errors = validateEnvironment();
     expect(errors.length).toBe(2);
     expect(errors.some((e) => e.includes("NYX_SECRET is not set"))).toBe(true);
