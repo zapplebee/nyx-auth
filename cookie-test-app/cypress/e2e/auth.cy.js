@@ -5,6 +5,29 @@ const CI_EMAIL = Cypress.env("CI_EMAIL") || "ci@nyx.test";
 const CI_PASSWORD = Cypress.env("CI_PASSWORD") || "TestPass1234!";
 const CI_OTP_SECRET = Cypress.env("CI_OTP_SECRET") || "5YIEQ5DAA6AGQMWT4X3LESW6FZYT4E2M";
 
+// Helper: complete the nyx-auth login+TOTP flow from inside cy.origin().
+// Generating the TOTP code here (immediately before typing it) avoids the
+// race condition where a code generated before cy.visit() expires by the
+// time the TOTP form is reached after two redirects and two form submissions.
+function loginViaOrigin(email, password, otpSecret) {
+  cy.origin(
+    AUTH_URL,
+    { args: { email, password, otpSecret } },
+    ({ email, password, otpSecret }) => {
+      cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
+      cy.get("#password").type(password);
+      cy.get("#btn-password").click();
+
+      // Generate the TOTP code as late as possible — just before typing —
+      // so it is fresh even when the login form takes several seconds to load.
+      cy.task("generateTotp", otpSecret).then((totpCode) => {
+        cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
+        cy.get("#btn-totp").click();
+      });
+    }
+  );
+}
+
 describe("cookie-test-app — server-side OIDC session", () => {
   it("home page shows login button when unauthenticated", () => {
     cy.visit("/");
@@ -34,104 +57,52 @@ describe("cookie-test-app — server-side OIDC session", () => {
   // 4. Server exchanges code for tokens, stores user in session cookie
   // 5. Home page shows authenticated user
   it("full OIDC login sets a server-side session (with TOTP)", () => {
-    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
-      cy.visit("/");
-      cy.get("#loginBtn").click();
+    cy.visit("/");
+    cy.get("#loginBtn").click();
 
-      cy.origin(
-        AUTH_URL,
-        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
-        ({ email, password, totpCode }) => {
-          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-          cy.get("#password").type(password);
-          cy.get("#btn-password").click();
+    loginViaOrigin(CI_EMAIL, CI_PASSWORD, CI_OTP_SECRET);
 
-          cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
-          cy.get("#btn-totp").click();
-        }
-      );
-
-      // After redirect chain: /callback → session set → /
-      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
-      cy.get("#claims").should("contain", CI_EMAIL);
-    });
+    // After redirect chain: /callback → session set → /
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
+    cy.get("#claims").should("contain", CI_EMAIL);
   });
 
   it("session persists across page loads (cookie auth)", () => {
-    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
-      cy.visit("/");
-      cy.get("#loginBtn").click();
+    cy.visit("/");
+    cy.get("#loginBtn").click();
 
-      cy.origin(
-        AUTH_URL,
-        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
-        ({ email, password, totpCode }) => {
-          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-          cy.get("#password").type(password);
-          cy.get("#btn-password").click();
+    loginViaOrigin(CI_EMAIL, CI_PASSWORD, CI_OTP_SECRET);
 
-          cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
-          cy.get("#btn-totp").click();
-        }
-      );
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
 
-      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
-
-      // Reload — session cookie should keep the user logged in without re-auth
-      cy.reload();
-      cy.get("#status").should("contain", CI_EMAIL);
-    });
+    // Reload — session cookie should keep the user logged in without re-auth
+    cy.reload();
+    cy.get("#status").should("contain", CI_EMAIL);
   });
 
   it("protected page is accessible after login", () => {
-    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
-      cy.visit("/");
-      cy.get("#loginBtn").click();
+    cy.visit("/");
+    cy.get("#loginBtn").click();
 
-      cy.origin(
-        AUTH_URL,
-        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
-        ({ email, password, totpCode }) => {
-          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-          cy.get("#password").type(password);
-          cy.get("#btn-password").click();
+    loginViaOrigin(CI_EMAIL, CI_PASSWORD, CI_OTP_SECRET);
 
-          cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
-          cy.get("#btn-totp").click();
-        }
-      );
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
 
-      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
-
-      cy.get("#protectedBtn").click();
-      cy.get("#status").should("contain", CI_EMAIL);
-    });
+    cy.get("#protectedBtn").click();
+    cy.get("#status").should("contain", CI_EMAIL);
   });
 
   it("logout destroys session and returns to unauthenticated state", () => {
-    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
-      cy.visit("/");
-      cy.get("#loginBtn").click();
+    cy.visit("/");
+    cy.get("#loginBtn").click();
 
-      cy.origin(
-        AUTH_URL,
-        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
-        ({ email, password, totpCode }) => {
-          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-          cy.get("#password").type(password);
-          cy.get("#btn-password").click();
+    loginViaOrigin(CI_EMAIL, CI_PASSWORD, CI_OTP_SECRET);
 
-          cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
-          cy.get("#btn-totp").click();
-        }
-      );
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
 
-      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
+    cy.get("#logoutBtn").click();
 
-      cy.get("#logoutBtn").click();
-
-      cy.get("#status").should("contain", "Not signed in");
-      cy.get("#loginBtn").should("be.visible");
-    });
+    cy.get("#status").should("contain", "Not signed in");
+    cy.get("#loginBtn").should("be.visible");
   });
 });
