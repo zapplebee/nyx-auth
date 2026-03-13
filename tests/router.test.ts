@@ -403,6 +403,31 @@ describe("refresh_token grant", () => {
     expect(body.refresh_token).toBeUndefined();
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/17
+  // offline_access mixed with other scopes must still produce a refresh_token
+  it("authorization_code with offline_access among other scopes includes a refresh_token", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile email offline_access",
+    });
+
+    const res = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(typeof body.refresh_token).toBe("string");
+  });
+
   it("refresh_token grant issues new access_token, id_token, and rotated refresh_token", async () => {
     const app = createApp(testClients, testUsers);
     const rt = await issueRefreshToken(userOptOut, webClient, "openid offline_access");
@@ -626,5 +651,46 @@ describe("custom claims via userinfo", () => {
     // Standard claims still correct
     expect(payload.sub).toBe("carol@example.com");
     expect(payload.email).toBe("carol@example.com");
+  });
+});
+
+// ── HTTP cache headers (ref: https://github.com/zapplebee/nyx-auth/issues/9) ─
+
+describe("HTTP cache headers on OIDC endpoints", () => {
+  it("token endpoint sets Cache-Control: no-store and Pragma: no-cache (RFC 6749 §5.1)", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await tokenRequest(app, {
+      grant_type: "client_credentials",
+      client_id: "my-service",
+      client_secret: "machine-secret",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Pragma")).toBe("no-cache");
+  });
+
+  it("JWKS endpoint sets Cache-Control: public, max-age=3600", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/jwks.json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  });
+
+  it("discovery endpoint sets Cache-Control: public, max-age=86400", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request("/api/auth/.well-known/openid-configuration");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
+  });
+
+  it("authorization endpoint sets Cache-Control: no-store", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid",
+      { headers: { Cookie: cookie } }
+    );
+    // authorize redirects (302) when session is valid — Cache-Control still set
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 });

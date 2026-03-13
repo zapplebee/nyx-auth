@@ -43,10 +43,12 @@ bun install
 ### 2. Environment
 
 ```env
-# Encryption key for config secrets and JWT signing (if SIGNING_PRIVATE_JWK not set)
+# Master encryption key — used to decrypt all enc:... values in clients.yml / users.yml.
+# Must be at least 32 characters. Never commit this to source control.
+# Generate with: openssl rand -base64 32
 NYX_SECRET=<random 32+ char string>
 
-# Public URL this service is reachable at
+# Public HTTPS URL of this service — used as the OIDC issuer claim.
 NYX_URL=https://auth.example.com
 
 # Comma-separated CORS origins allowed to call /api/auth/*
@@ -54,6 +56,8 @@ TRUSTED_ORIGINS=https://admin.example.com
 
 PORT=3000
 ```
+
+nyx-auth validates `NYX_SECRET` and `NYX_URL` at startup and exits with a clear error message if either is missing or invalid.
 
 ### 3. Define clients
 
