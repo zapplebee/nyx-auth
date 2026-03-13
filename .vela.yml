@@ -27,7 +27,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun --preload ./src/coverage-plugin.ts src/index.ts"
+      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun scripts/build-coverage.ts && bun dist-coverage/index.js"
     environment:
       NYX_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       NYX_URL: http://nyx-auth:3000
