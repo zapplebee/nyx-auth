@@ -1,6 +1,8 @@
 node_modules/
 data/
 .env
+coverage/
+dist-coverage/
 
 
 missions/*.secrets.*

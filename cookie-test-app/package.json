@@ -11,7 +11,8 @@
     "express-session": "^1.18.0"
   },
   "devDependencies": {
-    "cypress": "^13.0.0",
+    "@cypress/code-coverage": "^4.0.1",
+    "cypress": "^15.10.0",
     "otplib": "^13.3.0"
   }
 }

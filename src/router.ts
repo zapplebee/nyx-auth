@@ -414,6 +414,20 @@ export function createApp(
     return c.redirect(`/api/auth/oauth2/authorize?${params.toString()}`);
   });
 
+  // ── Coverage endpoints (only active when COVERAGE=1) ──────────────────────
+
+  if (process.env.COVERAGE) {
+    // @cypress/code-coverage reads r.body.coverage, so wrap accordingly.
+    app.get("/__coverage__", (c) => {
+      return c.json({ coverage: (globalThis as Record<string, unknown>).__coverage__ ?? {} });
+    });
+
+    app.post("/__coverage__/reset", (c) => {
+      (globalThis as Record<string, unknown>).__coverage__ = {};
+      return c.json({ ok: true });
+    });
+  }
+
   return app;
 }
 

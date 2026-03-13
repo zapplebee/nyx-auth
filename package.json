@@ -15,5 +15,14 @@
     "hono": "latest",
     "jose": "^5.9.6",
     "otplib": "^13.3.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-typescript": "^7.28.5",
+    "babel-plugin-istanbul": "^7.0.1",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
+    "lcov-parse": "^1.0.0"
   }
 }
