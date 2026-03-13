@@ -68,6 +68,8 @@ export function createApp(
   // ── OIDC Discovery ─────────────────────────────────────────────────────────
 
   app.get("/api/auth/.well-known/openid-configuration", (c) => {
+    // Discovery document changes infrequently; clients may cache for up to 24h.
+    c.header("Cache-Control", "public, max-age=86400");
     const issuer = process.env.NYX_URL ?? "http://localhost:3000";
     return c.json({
       issuer,
@@ -94,6 +96,8 @@ export function createApp(
   // ── JWKS ───────────────────────────────────────────────────────────────────
 
   app.get("/api/auth/jwks.json", async (c) => {
+    // Public keys change infrequently; clients may cache for up to 1h.
+    c.header("Cache-Control", "public, max-age=3600");
     const { getKeys } = await import("./keys");
     const { publicJwk } = await getKeys();
     return c.json({ keys: [publicJwk] });
@@ -102,6 +106,8 @@ export function createApp(
   // ── Authorization endpoint ─────────────────────────────────────────────────
 
   app.get("/api/auth/oauth2/authorize", async (c) => {
+    // Auth codes must never be cached — each response is a unique one-time value.
+    c.header("Cache-Control", "no-store");
     const params = c.req.query();
     const clientId = params.client_id;
     const redirectUri = params.redirect_uri;
@@ -221,6 +227,9 @@ export function createApp(
   // ── Token endpoint ─────────────────────────────────────────────────────────
 
   app.post("/api/auth/oauth2/token", async (c) => {
+    // RFC 6749 §5.1: token responses MUST include Cache-Control: no-store and Pragma: no-cache.
+    c.header("Cache-Control", "no-store");
+    c.header("Pragma", "no-cache");
     const body = await c.req.parseBody();
     const grantType = body.grant_type as string;
 
