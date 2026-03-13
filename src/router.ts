@@ -241,10 +241,12 @@ export function createApp(
 
     const authHeader = c.req.header("Authorization") ?? "";
     if (authHeader.startsWith("Basic ")) {
+      // RFC 6749 §2.3.1: client_id and client_secret must be URL-decoded after
+      // base64-decoding because compliant clients URL-encode them before encoding.
       const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
       const sep = decoded.indexOf(":");
-      clientId ??= decoded.slice(0, sep);
-      clientSecret ??= decoded.slice(sep + 1);
+      clientId ??= decodeURIComponent(decoded.slice(0, sep));
+      clientSecret ??= decodeURIComponent(decoded.slice(sep + 1));
     }
 
     const client = clients.get(clientId ?? "");

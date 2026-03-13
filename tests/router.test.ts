@@ -340,6 +340,38 @@ describe("client_credentials grant", () => {
     expect((await res.json()).error).toBe("unauthorized_client");
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/33
+  // RFC 6749 §2.3.1: client_id and client_secret are URL-encoded before
+  // base64-encoding in the Basic auth header. The server must URL-decode them.
+  it("Basic auth header with URL-encoded special chars in secret is accepted", async () => {
+    const specialSecret = "sec+ret/with=special&chars%21";
+    const clientWithSpecialSecret: ClientConfig = {
+      name: "Special Client",
+      clientId: "special-client",
+      clientSecret: specialSecret,
+      type: "web",
+      redirectURLs: [],
+      roles: [],
+    };
+    const clients = new Map([...testClients, ["special-client", clientWithSpecialSecret]]);
+    const app = createApp(clients, testUsers);
+
+    // Encode as RFC 6749 §2.3.1 specifies: URL-encode each component, then base64
+    const encoded = Buffer.from(
+      `${encodeURIComponent("special-client")}:${encodeURIComponent(specialSecret)}`
+    ).toString("base64");
+
+    const res = await app.request("/api/auth/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${encoded}`,
+      },
+      body: "grant_type=client_credentials",
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("rejects unsupported grant type", async () => {
     const app = createApp(testClients, testUsers);
     const res = await tokenRequest(app, {
