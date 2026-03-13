@@ -205,7 +205,9 @@ export function createApp(
 
     const result =
       user && requiresTotp(user)
-        ? await totpVerify({ token: code, secret: user.otpSeed!, window: 2 })
+        // window: 4 checks ±4 periods (±2 minutes) to tolerate clock skew and
+        // CI redirect latency without requiring code generation at the last moment.
+        ? await totpVerify({ token: code, secret: user.otpSeed!, window: 4 })
         : null;
     const totpOk = result?.valid === true;
 

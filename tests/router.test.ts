@@ -180,6 +180,30 @@ describe("TOTP login flow", () => {
     expect(totpRes.headers.get("set-cookie")).toContain("nyx_session");
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/... (TOTP window tolerance)
+  // The server checks ±4 periods so codes from the immediately adjacent windows
+  // (e.g. generated 30 s ago) are still accepted despite redirect latency.
+  it("TOTP code from the previous period is accepted (window tolerance)", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const loginRes = await loginRequest(app, { email: "alice@example.com", password: "correct-password" });
+    const { pendingToken } = await loginRes.json();
+
+    // Simulate a code that was generated one 30-second step in the past.
+    const prevCode = await totpGenerate({ secret: TOTP_SEED, timestamp: Date.now() - 30_000 });
+    const totpRes = await totpRequest(app, { pendingToken, code: prevCode });
+    expect(totpRes.status).toBe(200);
+  });
+
+  it("TOTP code from the next period is accepted (window tolerance)", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const loginRes = await loginRequest(app, { email: "alice@example.com", password: "correct-password" });
+    const { pendingToken } = await loginRes.json();
+
+    const nextCode = await totpGenerate({ secret: TOTP_SEED, timestamp: Date.now() + 30_000 });
+    const totpRes = await totpRequest(app, { pendingToken, code: nextCode });
+    expect(totpRes.status).toBe(200);
+  });
+
   it("wrong TOTP code is rejected and delayed", async () => {
     const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
 
