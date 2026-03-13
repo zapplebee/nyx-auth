@@ -128,21 +128,21 @@ export function createApp(
 
     if (!email) {
       const qs = new URLSearchParams(params).toString();
-      return c.redirect(`/login?${qs}`);
+      return c.redirect(`/login?${qs}`, 302);
     }
 
     const user = users.get(email);
     if (!user) {
       deleteCookie(c, "nyx_session");
       const qs = new URLSearchParams(params).toString();
-      return c.redirect(`/login?${qs}`);
+      return c.redirect(`/login?${qs}`, 302);
     }
 
     if (!client.skipConsent) {
       const consentGranted = params.consent_granted === "1";
       if (!consentGranted) {
         const qs = new URLSearchParams({ ...params, _email: email }).toString();
-        return c.redirect(`/consent?${qs}`);
+        return c.redirect(`/consent?${qs}`, 302);
       }
     }
 
@@ -158,7 +158,7 @@ export function createApp(
     const dest = new URL(redirectUri);
     dest.searchParams.set("code", code);
     if (state) dest.searchParams.set("state", state);
-    return c.redirect(dest.toString());
+    return c.redirect(dest.toString(), 302);
   });
 
   // ── Login endpoint ─────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ export function createApp(
     if (postLogoutUri) {
       const dest = new URL(postLogoutUri);
       if (state) dest.searchParams.set("state", state);
-      return c.redirect(dest.toString());
+      return c.redirect(dest.toString(), 302);
     }
     return c.html("<html><body><p>Logged out.</p></body></html>");
   });
@@ -422,7 +422,7 @@ export function createApp(
     const params = new URLSearchParams(qs);
     params.set("consent_granted", "1");
     params.delete("_email");
-    return c.redirect(`/api/auth/oauth2/authorize?${params.toString()}`);
+    return c.redirect(`/api/auth/oauth2/authorize?${params.toString()}`, 302);
   });
 
   // ── Coverage endpoints (only active when COVERAGE=1) ──────────────────────
