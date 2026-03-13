@@ -22,7 +22,7 @@ Users and clients are defined in YAML config files. All session state lives in s
 2. The user enters email + password, then a TOTP code (unless opted out)
 3. nyx-auth issues a signed authorization code and redirects back
 4. The client exchanges the code for an ID token and access token
-5. The ID token contains `email`, `name`, and per-client `roles`
+5. The ID token contains claims filtered by the requested scopes: `email`/`name` (openid), profile fields (profile), `email_verified` (email), and per-client `roles`
 
 **Machine-to-machine (client credentials)**
 
