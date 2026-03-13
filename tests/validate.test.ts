@@ -1,7 +1,7 @@
 // Tests for src/validate.ts
 // Ref: https://github.com/zapplebee/nyx-auth/issues/14
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { validateClients, validateUsers, validateConfig } from "../src/validate";
 import type { ClientConfig } from "../src/clients";
 import type { UserConfig } from "../src/users";
@@ -150,6 +150,84 @@ describe("validateUsers", () => {
       userMap(makeUser({ name: "", password: "", email: "bad" }))
     );
     expect(errors.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── http redirect URI rejection in production (ref: https://github.com/zapplebee/nyx-auth/issues/12) ──
+
+describe("validateClients — http redirect URIs in production", () => {
+  const savedNodeEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    if (savedNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = savedNodeEnv;
+    }
+  });
+
+  it("accepts https:// redirect URIs in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["https://app.example.com/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("accepts http:// redirect URIs when not in production", () => {
+    delete process.env.NODE_ENV;
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://app.example.com/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("rejects non-localhost http:// redirect URIs in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://app.example.com/callback"] }))
+    );
+    expect(errors.some((e) => e.includes("http://") && e.includes("not allowed in production"))).toBe(true);
+  });
+
+  it("allows http://localhost in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://localhost:3000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://127.0.0.1 in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://127.0.0.1:8080/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://0.0.0.0 in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://0.0.0.0:4000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("allows http://[::1] in production", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://[::1]:9000/callback"] }))
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("includes RFC 6749 §10.6 reference in the error message", () => {
+    process.env.NODE_ENV = "production";
+    const errors = validateClients(
+      clientMap(makeClient({ redirectURLs: ["http://evil.example.com/callback"] }))
+    );
+    expect(errors.some((e) => e.includes("RFC 6749"))).toBe(true);
   });
 });
 
