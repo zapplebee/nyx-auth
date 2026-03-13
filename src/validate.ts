@@ -16,6 +16,12 @@ const VALID_CLIENT_TYPES = new Set(["web", "native", "user-agent-based", "public
 // part and a domain that has at least one dot.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Hostnames that are always safe for http:// redirect URIs (local development).
+// Ref: https://github.com/zapplebee/nyx-auth/issues/12
+// Note: 0.0.0.0 is treated as loopback per issue comment.
+// URL.hostname returns "[::1]" (with brackets) for IPv6 addresses.
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+
 export function validateClients(clients: Map<string, ClientConfig>): string[] {
   const errors: string[] = [];
 
@@ -48,11 +54,25 @@ export function validateClients(clients: Map<string, ClientConfig>): string[] {
     }
 
     // Validate each redirect URL is a well-formed absolute URL.
+    // In production, non-loopback http:// redirect URIs are rejected (RFC 6749 §10.6).
     for (const url of client.redirectURLs ?? []) {
+      let parsed: URL;
       try {
-        new URL(url);
+        parsed = new URL(url);
       } catch {
         errors.push(`${prefix}: redirectURL "${url}" is not a valid URL`);
+        continue;
+      }
+
+      if (
+        process.env.NODE_ENV === "production" &&
+        parsed.protocol === "http:" &&
+        !LOOPBACK_HOSTS.has(parsed.hostname)
+      ) {
+        errors.push(
+          `${prefix}: redirectURL "${url}" uses http:// — ` +
+          `non-localhost http redirect URIs are not allowed in production (RFC 6749 §10.6)`
+        );
       }
     }
   }
