@@ -750,3 +750,50 @@ describe("HTTP cache headers on OIDC endpoints", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 });
+
+// ── Authorization redirect status codes (ref: https://github.com/zapplebee/nyx-auth/issues/31) ─
+
+describe("authorization endpoint redirect status codes", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/31
+  // HTTP 302 must be used for all authorization-flow redirects so that clients
+  // follow up with a GET, not a repeat POST (which HTTP 307 would require).
+  it("redirects to login with 302 when no session cookie", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid"
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/login");
+  });
+
+  it("redirects to client with 302 after successful authorization", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("https://app.example.com/callback");
+  });
+
+  it("error redirect uses 302 (not 307)", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=token&scope=openid",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("error=unsupported_response_type");
+  });
+
+  it("logout redirects to post_logout_redirect_uri with 302", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/logout?post_logout_redirect_uri=https://app.example.com/logged-out"
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://app.example.com/logged-out");
+  });
+});
