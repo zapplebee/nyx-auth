@@ -6,6 +6,9 @@
 import { loadClients } from "./clients";
 import { loadUsers } from "./users";
 import { createApp } from "./router";
+import { assertEnvironment } from "./startup-checks";
+
+assertEnvironment();
 
 const clients = await loadClients();
 const users = await loadUsers();

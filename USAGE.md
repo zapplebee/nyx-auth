@@ -665,8 +665,8 @@ The `kid` field is derived from the JWK. Add one manually if you want predictabl
 
 | Variable | Required | Description |
 |---|---|---|
-| `NYX_SECRET` | Yes | Encryption key for `enc:` values. Min 32 chars. |
-| `NYX_URL` | Yes | Public URL of this service (e.g. `https://auth.example.com`). Used as OIDC issuer. |
+| `NYX_SECRET` | Yes | Master encryption key for all `enc:` values in `clients.yml` and `users.yml`. Must be **at least 32 characters**. Generate with `openssl rand -base64 32`. Never commit this value. |
+| `NYX_URL` | Yes | Public HTTPS URL of this service (e.g. `https://auth.example.com`). Used as the OIDC issuer. HTTP is allowed for `localhost` only. |
 | `TRUSTED_ORIGINS` | No | Comma-separated CORS origins. Defaults to `*` if not set. |
 | `SIGNING_PRIVATE_JWK` | No | JSON-serialized ES256 private key JWK. Generated ephemerally if not set. |
 | `CLIENTS_CONFIG` | No | Path to clients YAML. Defaults to `./clients.yml`. |
