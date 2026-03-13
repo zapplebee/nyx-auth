@@ -169,6 +169,24 @@ users:
 
 Standard claims always override any matching key in `claims`.
 
+#### Naming convention for custom claim keys
+
+Short, unnamespaced identifiers (`oid`, `tid`, `groups`) are accepted as-is.
+
+For URI-namespaced claims the path components must use **kebab-case** — not camelCase:
+
+```yaml
+claims:
+  # ✓ correct
+  https://example.com/tenant-id: "abc"
+  https://example.com/email-verification: true
+
+  # ✗ rejected at startup (camelCase path component)
+  https://example.com/tenantId: "abc"
+```
+
+nyx-auth validates claim key names at startup and will exit with an error if a URI-style key contains camelCase. Run `bun run validate:config` to check without starting the server.
+
 ---
 
 ## TOTP setup

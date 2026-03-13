@@ -22,6 +22,39 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // URL.hostname returns "[::1]" (with brackets) for IPv6 addresses.
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
 
+/**
+ * Validate a custom claim key name.
+ *
+ * URI-style claim keys (e.g. `https://example.com/email-verification`) must
+ * use kebab-case for path components — camelCase like `emailVerification` is
+ * rejected. Plain short identifiers (e.g. `oid`, `tid`) are accepted as-is.
+ *
+ * Returns an error message string if the key is invalid, or undefined if valid.
+ *
+ * Ref: https://github.com/zapplebee/nyx-auth/issues/21
+ */
+export function validateClaimKey(key: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(key);
+  } catch {
+    // Not a URI — plain identifiers are acceptable (e.g. "oid", "tid", "groups").
+    return undefined;
+  }
+
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  for (const segment of segments) {
+    if (/[a-z][A-Z]/.test(segment)) {
+      const suggested = segment.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+      return (
+        `URI path component "${segment}" uses camelCase — ` +
+        `use kebab-case instead (e.g. "${suggested}")`
+      );
+    }
+  }
+  return undefined;
+}
+
 export function validateClients(clients: Map<string, ClientConfig>): string[] {
   const errors: string[] = [];
 
@@ -112,6 +145,16 @@ export function validateUsers(users: Map<string, UserConfig>): string[] {
       errors.push(
         `${prefix}: password must not be empty — run: bun run users:set-password ${user.email}`
       );
+    }
+
+    // Validate custom claim key naming conventions (ref: issue #21).
+    if (user.claims) {
+      for (const claimKey of Object.keys(user.claims)) {
+        const claimError = validateClaimKey(claimKey);
+        if (claimError) {
+          errors.push(`${prefix}: custom claim key "${claimKey}" — ${claimError}`);
+        }
+      }
     }
   }
 
