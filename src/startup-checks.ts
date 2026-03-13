@@ -3,7 +3,14 @@
 // Called before serving any requests. Exits with a non-zero status and a
 // clear message if required environment variables are missing or invalid.
 
-const MIN_SECRET_LENGTH = 32;
+// RFC 4648 standard base64 alphabet with well-formed padding.
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/** Decode a base64 string and return a Buffer, or null if it is not valid base64. */
+function tryDecodeBase64(s: string): Buffer | null {
+  if (!BASE64_RE.test(s)) return null;
+  return Buffer.from(s, "base64");
+}
 
 /**
  * Validate required environment variables and return an array of error messages.
@@ -17,8 +24,8 @@ export function validateEnvironment(): string[] {
   // ── NYX_SECRET ─────────────────────────────────────────────────────────────
   //
   // NYX_SECRET is the master key used to decrypt all enc:... values in
-  // clients.yml and users.yml (AES-256-GCM via PBKDF2). It must be at least
-  // 32 characters long to provide adequate entropy.
+  // clients.yml and users.yml (AES-256-GCM via PBKDF2). It must be a
+  // base64-encoded value that decodes to exactly 32 bytes of key material.
   //
   // Generate one with:
   //   openssl rand -base64 32
@@ -34,11 +41,20 @@ export function validateEnvironment(): string[] {
       "  NYX_SECRET is the master encryption key for all secrets stored in clients.yml and users.yml.\n" +
       "  Generate one with: openssl rand -base64 32"
     );
-  } else if (secret.length < MIN_SECRET_LENGTH) {
-    errors.push(
-      `NYX_SECRET is too short: got ${secret.length} character(s), need at least ${MIN_SECRET_LENGTH}.\n` +
-      "  Generate a suitable key with: openssl rand -base64 32"
-    );
+  } else {
+    const decoded = tryDecodeBase64(secret);
+    if (decoded === null) {
+      errors.push(
+        "NYX_SECRET is not valid base64.\n" +
+        "  NYX_SECRET must be a base64-encoded value representing exactly 32 bytes.\n" +
+        "  Generate one with: openssl rand -base64 32"
+      );
+    } else if (decoded.length !== 32) {
+      errors.push(
+        `NYX_SECRET: expected 32 bytes after base64 decode, got ${decoded.length} byte(s).\n` +
+        "  Generate a 32-byte key with: openssl rand -base64 32"
+      );
+    }
   }
 
   // ── NYX_URL ────────────────────────────────────────────────────────────────
