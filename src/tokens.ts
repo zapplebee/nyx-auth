@@ -126,22 +126,57 @@ export async function decodeAuthCode(code: string): Promise<AuthCodePayload> {
 // ── OIDC tokens (ID token + access token) ────────────────────────────────────
 
 /**
+ * Build the OIDC standard claims for a user, filtered by the requested scopes.
+ *
+ * Per OIDC Core §5.4:
+ *   - `profile` scope → name, preferred_username, given_name, family_name, picture, website
+ *   - `email`   scope → email, email_verified
+ *
+ * `sub` and `roles` are always included regardless of scope.
+ */
+export function scopeFilteredClaims(
+  user: UserConfig,
+  scope: string
+): Record<string, unknown> {
+  const scopes = new Set(scope.split(" "));
+  const claims: Record<string, unknown> = {};
+
+  if (scopes.has("profile") || scopes.has("openid")) {
+    claims.name = user.name;
+    if (user.preferred_username !== undefined) claims.preferred_username = user.preferred_username;
+    if (user.given_name !== undefined) claims.given_name = user.given_name;
+    if (user.family_name !== undefined) claims.family_name = user.family_name;
+    if (user.picture !== undefined) claims.picture = user.picture;
+    if (user.website !== undefined) claims.website = user.website;
+  }
+
+  if (scopes.has("email") || scopes.has("openid")) {
+    claims.email = user.email;
+    if (user.email_verified !== undefined) claims.email_verified = user.email_verified;
+  }
+
+  return claims;
+}
+
+/**
  * Issue an ID token for the authenticated user.
- * Audience is the client_id. Contains email, name, and per-client roles.
+ * Audience is the client_id. Contains standard claims filtered by requested scope,
+ * plus per-client roles. Custom claims in user.claims are included as extras.
  */
 export async function issueIdToken(
   user: UserConfig,
   client: ClientConfig,
-  nonce?: string
+  nonce?: string,
+  scope?: string
 ): Promise<string> {
   const { privateKey, kid } = await getKeys();
   const roles = rolesForClient(user, client.clientId);
+  const stdClaims = scope ? scopeFilteredClaims(user, scope) : { email: user.email, name: user.name };
   return new SignJWT({
     // Custom claims first — standard claims below always take precedence.
     ...(user.claims ?? {}),
+    ...stdClaims,
     sub: user.email,
-    email: user.email,
-    name: user.name,
     roles,
     ...(nonce ? { nonce } : {}),
   })

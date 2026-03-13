@@ -22,11 +22,29 @@ export interface UserConfig {
   /** Base32 TOTP secret (decrypted), or OPT_OUT, or undefined (treated as OPT_OUT). */
   otpSeed?: string;
   clients: UserClientEntry[];
+
+  // Standard OIDC claims (OIDC Core §5.1 / §5.4).
+  // These are included in ID tokens and the userinfo response when the
+  // corresponding scope is requested: `profile` → name-related fields,
+  // `email` → email + email_verified.
+  /** Shorthand name / handle (profile scope). */
+  preferred_username?: string;
+  /** Given (first) name (profile scope). */
+  given_name?: string;
+  /** Family (last) name (profile scope). */
+  family_name?: string;
+  /** Absolute URL of the user's profile photo (profile scope). */
+  picture?: string;
+  /** Absolute URL of the user's website (profile scope). */
+  website?: string;
+  /** Whether the email address has been verified (email scope). */
+  email_verified?: boolean;
+
   /**
    * Arbitrary extra claims included verbatim in the ID token and access token.
    * Use this to emulate IdP-specific fields (e.g. Microsoft Entra's `oid`,
-   * `tid`, `groups`, `given_name`). Standard claims (sub, email, name, roles,
-   * iss, aud, iat, exp) always override any matching key defined here.
+   * `tid`, `groups`). Standard claims (sub, email, name, roles, iss, aud,
+   * iat, exp) always override any matching key defined here.
    */
   claims?: Record<string, unknown>;
 }

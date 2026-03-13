@@ -710,6 +710,114 @@ describe("custom claims via userinfo", () => {
   });
 });
 
+// ── Standard OIDC claims (ref: https://github.com/zapplebee/nyx-auth/issues/10) ─
+
+describe("standard OIDC claims (scope-filtered)", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/10
+  // OIDC Core §5.4 defines scope-to-claims mappings:
+  //   profile → name, preferred_username, given_name, family_name, picture, website
+  //   email   → email, email_verified
+  const userWithStdClaims: UserConfig = {
+    email: "diana@example.com",
+    name: "Diana Prince",
+    password: "diana-password",
+    otpSeed: OTP_OUT,
+    preferred_username: "diana",
+    given_name: "Diana",
+    family_name: "Prince",
+    picture: "https://example.com/diana.jpg",
+    website: "https://diana.example.com",
+    email_verified: true,
+    clients: [{ clientId: "my-app", roles: ["user"] }],
+  };
+
+  const usersWithStdClaims = new Map([...testUsers, ["diana@example.com", userWithStdClaims]]);
+
+  async function getTokens(scope: string) {
+    const app = createApp(testClients, usersWithStdClaims, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "diana@example.com", "diana-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope,
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const tokens = await tokenRes.json();
+    return { app, tokens };
+  }
+
+  it("profile scope includes name, preferred_username, given_name, family_name, picture, website in ID token", async () => {
+    const { tokens } = await getTokens("openid profile");
+    const payload = unsafeDecodePayload(tokens.id_token);
+    expect(payload.name).toBe("Diana Prince");
+    expect(payload.preferred_username).toBe("diana");
+    expect(payload.given_name).toBe("Diana");
+    expect(payload.family_name).toBe("Prince");
+    expect(payload.picture).toBe("https://example.com/diana.jpg");
+    expect(payload.website).toBe("https://diana.example.com");
+  });
+
+  it("email scope includes email_verified in ID token", async () => {
+    const { tokens } = await getTokens("openid email");
+    const payload = unsafeDecodePayload(tokens.id_token);
+    expect(payload.email).toBe("diana@example.com");
+    expect(payload.email_verified).toBe(true);
+  });
+
+  it("profile scope includes standard claims in userinfo response", async () => {
+    const { app, tokens } = await getTokens("openid profile");
+    const res = await app.request("/api/auth/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const body = await res.json();
+    expect(body.name).toBe("Diana Prince");
+    expect(body.preferred_username).toBe("diana");
+    expect(body.given_name).toBe("Diana");
+    expect(body.family_name).toBe("Prince");
+  });
+
+  it("email scope includes email_verified in userinfo response", async () => {
+    const { app, tokens } = await getTokens("openid email");
+    const res = await app.request("/api/auth/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const body = await res.json();
+    expect(body.email).toBe("diana@example.com");
+    expect(body.email_verified).toBe(true);
+  });
+
+  it("standard fields absent from UserConfig are omitted from tokens", async () => {
+    // bob has no preferred_username, given_name etc. — they should not appear
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile email",
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const { id_token } = await tokenRes.json();
+    const payload = unsafeDecodePayload(id_token);
+    expect(payload.preferred_username).toBeUndefined();
+    expect(payload.given_name).toBeUndefined();
+    expect(payload.email_verified).toBeUndefined();
+  });
+});
+
 // ── HTTP cache headers (ref: https://github.com/zapplebee/nyx-auth/issues/9) ─
 
 describe("HTTP cache headers on OIDC endpoints", () => {
