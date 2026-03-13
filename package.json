@@ -9,7 +9,8 @@
     "test:coverage": "bun test --coverage tests/",
     "clients:set-secret": "bun scripts/set-client-secret.ts",
     "users:set-password": "bun scripts/set-user-password.ts",
-    "users:set-totp-seed": "bun scripts/set-user-totp-seed.ts"
+    "users:set-totp-seed": "bun scripts/set-user-totp-seed.ts",
+    "validate:config": "bun scripts/validate-config.ts"
   },
   "dependencies": {
     "hono": "latest",
