@@ -12,6 +12,7 @@
     "otplib": "^13.3.0"
   },
   "devDependencies": {
+    "@cypress/code-coverage": "^4.0.1",
     "vite": "^5.4.0"
   }
 }

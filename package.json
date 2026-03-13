@@ -15,5 +15,8 @@
     "hono": "latest",
     "jose": "^5.9.6",
     "otplib": "^13.3.0"
+  },
+  "devDependencies": {
+    "babel-plugin-istanbul": "^7.0.1"
   }
 }

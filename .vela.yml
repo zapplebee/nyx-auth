@@ -27,7 +27,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun src/index.ts"
+      - "until [ -f ${VELA_WORKSPACE}/package.json ]; do sleep 1; done && cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun --preload ./src/coverage-plugin.ts src/index.ts"
     environment:
       NYX_SECRET: ci-test-secret-nyx-auth-do-not-use-in-prod
       NYX_URL: http://nyx-auth:3000
@@ -35,6 +35,7 @@ services:
       CLIENTS_CONFIG: ./clients.ci.yml
       USERS_CONFIG: ./users.ci.yml
       PORT: "3000"
+      COVERAGE: "1"
 
   - name: test-app
     image: node:20-alpine
@@ -79,7 +80,8 @@ steps:
     image: oven/bun:1.3.5
     pull: always
     commands:
-      - cd ${VELA_WORKSPACE} && bun install --frozen-lockfile && bun test:coverage
+      - cd ${VELA_WORKSPACE} && bun install --frozen-lockfile
+      - cd ${VELA_WORKSPACE} && bun test --coverage --coverage-reporter=lcov tests/
 
   - name: cypress
     image: cypress/included:latest
@@ -112,11 +114,24 @@ steps:
       status: [success, failure]
     secrets: [minio_access_key, minio_secret_key]
     commands:
-      - apk add --no-cache curl
+      - apk add --no-cache curl nodejs npm
       - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
       - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
       - mc anonymous set download minio/cypress-videos
+      # ── Unit test coverage HTML ─────────────────────────────────────────────
+      - |
+        if [ -f "${VELA_WORKSPACE}/coverage/lcov.info" ]; then
+          npx --yes @lcov-viewer/cli lcov --output "${VELA_WORKSPACE}/coverage/html" "${VELA_WORKSPACE}/coverage/lcov.info"
+          mc cp --recursive "${VELA_WORKSPACE}/coverage/html/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/unit-coverage/"
+          echo "Unit coverage: https://bucket.prettybird.zapplebee.online/cypress-videos/${VELA_BUILD_NUMBER}/unit-coverage/index.html"
+        else
+          echo "no unit test lcov.info found"
+        fi
+      # ── E2E coverage reports ─────────────────────────────────────────────────
+      - mc cp --recursive "${VELA_WORKSPACE}/test-app/coverage/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/e2e-coverage/test-app/" || echo "no test-app e2e coverage to upload"
+      - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/coverage/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/e2e-coverage/cookie-test-app/" || echo "no cookie-test-app e2e coverage to upload"
+      # ── Cypress videos/screenshots ───────────────────────────────────────────
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/videos/" || echo "no test-app videos to upload"
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/screenshots/" || echo "no test-app screenshots to upload"
       - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/cookie-test-app/videos/" || echo "no cookie-test-app videos to upload"
