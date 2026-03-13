@@ -19,6 +19,8 @@ if (process.env.COVERAGE) {
               {
                 include: ["src/**/*.ts"],
                 exclude: ["src/coverage-plugin.ts", "**/*.test.ts"],
+                // Use cwd so generated paths are relative (matches bun test lcov output).
+                cwd: process.cwd(),
               },
             ],
           ],

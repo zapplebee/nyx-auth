@@ -107,6 +107,15 @@ steps:
     commands:
       - cd cookie-test-app && npm install --ignore-scripts && cypress run --browser chrome
 
+  - name: merge-coverage
+    image: oven/bun:1.3.5
+    pull: always
+    ruleset:
+      status: [success, failure]
+    commands:
+      - cd ${VELA_WORKSPACE} && bun install --frozen-lockfile
+      - bun scripts/merge-coverage.ts
+
   - name: upload-artifacts
     image: alpine:latest
     pull: always
@@ -114,23 +123,13 @@ steps:
       status: [success, failure]
     secrets: [minio_access_key, minio_secret_key]
     commands:
-      - apk add --no-cache curl nodejs npm
+      - apk add --no-cache curl
       - curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
       - mc alias set minio http://172.17.0.1:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
       - mc mb --ignore-existing minio/cypress-videos
       - mc anonymous set download minio/cypress-videos
-      # ── Unit test coverage HTML ─────────────────────────────────────────────
-      - |
-        if [ -f "${VELA_WORKSPACE}/coverage/lcov.info" ]; then
-          npx --yes @lcov-viewer/cli lcov --output "${VELA_WORKSPACE}/coverage/html" "${VELA_WORKSPACE}/coverage/lcov.info"
-          mc cp --recursive "${VELA_WORKSPACE}/coverage/html/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/unit-coverage/"
-          echo "Unit coverage: https://bucket.prettybird.zapplebee.online/cypress-videos/${VELA_BUILD_NUMBER}/unit-coverage/index.html"
-        else
-          echo "no unit test lcov.info found"
-        fi
-      # ── E2E coverage reports ─────────────────────────────────────────────────
-      - mc cp --recursive "${VELA_WORKSPACE}/test-app/coverage/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/e2e-coverage/test-app/" || echo "no test-app e2e coverage to upload"
-      - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/coverage/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/e2e-coverage/cookie-test-app/" || echo "no cookie-test-app e2e coverage to upload"
+      # ── Merged coverage HTML ─────────────────────────────────────────────────
+      - mc cp --recursive "${VELA_WORKSPACE}/coverage/merged/html/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/coverage/" || echo "no merged coverage html to upload"
       # ── Cypress videos/screenshots ───────────────────────────────────────────
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/videos/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/videos/" || echo "no test-app videos to upload"
       - mc cp --recursive "${VELA_WORKSPACE}/test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/test-app/screenshots/" || echo "no test-app screenshots to upload"
@@ -138,6 +137,7 @@ steps:
       - mc cp --recursive "${VELA_WORKSPACE}/cookie-test-app/cypress/screenshots/" "minio/cypress-videos/${VELA_BUILD_NUMBER}/cookie-test-app/screenshots/" || echo "no cookie-test-app screenshots to upload"
       - |
         echo "=== Artifact download links ==="
+        echo "  Coverage: https://bucket.prettybird.zapplebee.online/cypress-videos/${VELA_BUILD_NUMBER}/coverage/index.html"
         mc ls --recursive "minio/cypress-videos/${VELA_BUILD_NUMBER}/" | awk -v build="${VELA_BUILD_NUMBER}" '{print "  https://bucket.prettybird.zapplebee.online/cypress-videos/" build "/" $NF}'
         echo "=== Console ==="
         echo "  https://minio.prettybird.zapplebee.online/browser/cypress-videos/${VELA_BUILD_NUMBER}/"
