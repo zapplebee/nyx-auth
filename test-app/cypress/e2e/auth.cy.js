@@ -143,37 +143,38 @@ describe("nyx-auth pipeline smoke tests", () => {
   // 1. Click Login on test-app → signinRedirect() → navigates to nyx-auth/login
   // 2. cy.origin() fills credentials on the nyx-auth origin
   // 3. Password step succeeds → TOTP form appears
-  // 4. cy.origin() enters TOTP code (generated via cy.task before crossing origin)
+  // 4. cy.origin() generates and enters TOTP code immediately before typing —
+  //    generating inside cy.origin() ensures the code is fresh even after slow redirects
   // 5. TOTP step succeeds → OAuth2 authorize → redirect to test-app/callback
   // 6. oidc-client-ts handles callback → shows user profile
   //
   // Requires Chrome with --unsafely-treat-insecure-origin-as-secure=http://test-app:5173
   // (set via before:browser:launch in cypress.config.js) so Crypto.subtle works on HTTP.
   it("full OIDC login flow via login page (with TOTP)", () => {
-    // Generate the TOTP code in Node context before crossing origins —
-    // cy.task() cannot be called inside cy.origin().
-    cy.task("generateTotp", CI_OTP_SECRET).then((totpCode) => {
-      cy.visit("/");
-      cy.get("#loginBtn").should("be.visible").click();
+    cy.visit("/");
+    cy.get("#loginBtn").should("be.visible").click();
 
-      // Cypress navigates cross-origin to nyx-auth:3000 — use cy.origin() to interact
-      cy.origin(
-        AUTH_URL,
-        { args: { email: CI_EMAIL, password: CI_PASSWORD, totpCode } },
-        ({ email, password, totpCode }) => {
-          // Step 1: password
-          cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
-          cy.get("#password").type(password);
-          cy.get("#btn-password").click();
+    // Cypress navigates cross-origin to nyx-auth:3000 — use cy.origin() to interact.
+    // cy.task() is called inside cy.origin() immediately before typing the TOTP code
+    // so the code is always fresh — avoids expiry during the login redirect chain.
+    cy.origin(
+      AUTH_URL,
+      { args: { email: CI_EMAIL, password: CI_PASSWORD, otpSecret: CI_OTP_SECRET } },
+      ({ email, password, otpSecret }) => {
+        // Step 1: password
+        cy.get("#email", { timeout: 10000 }).should("be.visible").type(email);
+        cy.get("#password").type(password);
+        cy.get("#btn-password").click();
 
-          // Step 2: TOTP — form-password hides, form-totp appears
+        // Step 2: TOTP — generate the code as late as possible so it is still valid
+        cy.task("generateTotp", otpSecret).then((totpCode) => {
           cy.get("#totp", { timeout: 10000 }).should("be.visible").type(totpCode);
           cy.get("#btn-totp").click();
-        }
-      );
+        });
+      }
+    );
 
-      // After successful auth, test-app/callback processes the code and shows the user.
-      cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
-    });
+    // After successful auth, test-app/callback processes the code and shows the user.
+    cy.get("#status", { timeout: 15000 }).should("contain", CI_EMAIL);
   });
 });
