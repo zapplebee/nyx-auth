@@ -23,6 +23,7 @@ import {
   issuePendingTotpToken,
   verifyPendingTotpToken,
   safeEqual,
+  scopeFilteredClaims,
 } from "./tokens";
 import { loginHtml, consentHtml } from "./pages";
 import { requiresTotp } from "./users";
@@ -299,7 +300,7 @@ export function createApp(
 
       // Rotate: issue a fresh refresh token alongside new access + id tokens.
       const [idToken, accessToken, refreshToken] = await Promise.all([
-        issueIdToken(user, client, undefined),
+        issueIdToken(user, client, undefined, rtPayload.scope),
         issueAccessToken(user, client, rtPayload.scope),
         issueRefreshToken(user, client, rtPayload.scope),
       ]);
@@ -353,7 +354,7 @@ export function createApp(
     const wantsRefresh = payload.scope.split(" ").includes("offline_access");
 
     const [idToken, accessToken, refreshToken] = await Promise.all([
-      issueIdToken(user, client, payload.nonce),
+      issueIdToken(user, client, payload.nonce, payload.scope),
       issueAccessToken(user, client, payload.scope),
       wantsRefresh ? issueRefreshToken(user, client, payload.scope) : Promise.resolve(undefined),
     ]);
@@ -384,7 +385,12 @@ export function createApp(
     const user = users.get(payload.sub as string);
     if (!user) return c.json({ error: "invalid_token" }, 401);
 
-    return c.json({ ...(user.claims ?? {}), sub: user.email, email: user.email, name: user.name });
+    const scope = (payload.scope as string | undefined) ?? "openid";
+    return c.json({
+      ...(user.claims ?? {}),
+      ...scopeFilteredClaims(user, scope),
+      sub: user.email,
+    });
   });
 
   // ── RP-initiated logout (end_session_endpoint) ────────────────────────────
