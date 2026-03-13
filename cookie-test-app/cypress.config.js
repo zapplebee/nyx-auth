@@ -20,6 +20,7 @@ export default defineConfig({
     },
     setupNodeEvents(on, config) {
       require("@cypress/code-coverage/task")(on, config);
+      config.expose.codeCoverage = config.env.codeCoverage ?? {};
       on("task", {
         async generateTotp(secret) {
           const { generate } = await import("otplib");

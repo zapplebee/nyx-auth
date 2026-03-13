@@ -23,6 +23,9 @@ export default defineConfig({
     },
     setupNodeEvents(on, config) {
       require("@cypress/code-coverage/task")(on, config);
+      // task.js only exposes codeCoverageTasksRegistered; we must also expose
+      // the codeCoverage config so support.js can read Cypress.expose('codeCoverage').
+      config.expose.codeCoverage = config.env.codeCoverage ?? {};
       // Allow Crypto.subtle (used by oidc-client-ts for PKCE) on plain HTTP
       // origins inside the CI network — equivalent to marking them secure.
       on("before:browser:launch", (browser, launchOptions) => {
