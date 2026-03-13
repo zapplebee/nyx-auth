@@ -739,6 +739,55 @@ describe("HTTP cache headers on OIDC endpoints", () => {
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/7
+  // The authorize endpoint must echo state in all redirects — this is the
+  // server side of OAuth CSRF protection (RFC 6749 §10.12).
+  it("state is echoed in the authorization code redirect", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid&state=csrf-xyz-123",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("state")).toBe("csrf-xyz-123");
+    expect(location.searchParams.get("code")).toBeTruthy();
+  });
+
+  it("state is echoed in error redirects from the authorize endpoint", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    // Trigger unsupported_response_type error
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=token&scope=openid&state=csrf-xyz-456",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("unsupported_response_type");
+    expect(location.searchParams.get("state")).toBe("csrf-xyz-456");
+  });
+
+  it("state is preserved in the login redirect and returned with the code", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    // No session — authorize redirects to /login with all params including state
+    const authorizeRes = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid&state=csrf-preserving-state"
+    );
+    expect(authorizeRes.status).toBe(302);
+    const loginLocation = authorizeRes.headers.get("Location")!;
+    expect(loginLocation).toContain("state=csrf-preserving-state");
+
+    // Now simulate completing login and re-hitting authorize with the same params
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const qs = loginLocation.split("?")[1];
+    const codeRes = await app.request(`/api/auth/oauth2/authorize?${qs}`, {
+      headers: { Cookie: cookie },
+    });
+    const codeLoc = new URL(codeRes.headers.get("Location")!);
+    expect(codeLoc.searchParams.get("state")).toBe("csrf-preserving-state");
+    expect(codeLoc.searchParams.get("code")).toBeTruthy();
+  });
+
   it("authorization endpoint sets Cache-Control: no-store", async () => {
     const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
     const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
