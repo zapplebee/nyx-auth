@@ -403,6 +403,31 @@ describe("refresh_token grant", () => {
     expect(body.refresh_token).toBeUndefined();
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/17
+  // offline_access mixed with other scopes must still produce a refresh_token
+  it("authorization_code with offline_access among other scopes includes a refresh_token", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile email offline_access",
+    });
+
+    const res = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(typeof body.refresh_token).toBe("string");
+  });
+
   it("refresh_token grant issues new access_token, id_token, and rotated refresh_token", async () => {
     const app = createApp(testClients, testUsers);
     const rt = await issueRefreshToken(userOptOut, webClient, "openid offline_access");
