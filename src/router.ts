@@ -124,6 +124,13 @@ export function createApp(
     if (!client.redirectURLs.includes(redirectUri)) return c.text("Invalid redirect_uri", 400);
     if (responseType !== "code") return redirectError(redirectUri, state, "unsupported_response_type");
 
+    // OIDC Core §3.1.2.2: every authorization request must include "openid" in scope.
+    // Reject early so clients get a clear error rather than a token that may not
+    // meet OIDC expectations.
+    if (!scope.split(" ").includes("openid")) {
+      return redirectError(redirectUri, state, "invalid_scope");
+    }
+
     const sessionCookie = getCookie(c, "nyx_session");
     const email = await verifySessionToken(sessionCookie ?? "");
 

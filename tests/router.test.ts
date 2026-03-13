@@ -954,3 +954,46 @@ describe("authorization endpoint redirect status codes", () => {
     expect(res.headers.get("Location")).toBe("https://app.example.com/logged-out");
   });
 });
+
+// ── openid scope validation (ref: https://github.com/zapplebee/nyx-auth/issues/23) ─
+
+describe("openid scope requirement", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/23
+  // OIDC Core §3.1.2.2 requires "openid" in every authorization request scope.
+  it("returns invalid_scope error when openid scope is missing", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=profile+email",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+  });
+
+  it("includes state in the invalid_scope error redirect", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=profile&state=csrf-token-abc",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+    expect(location.searchParams.get("state")).toBe("csrf-token-abc");
+  });
+
+  it("accepts scope that includes openid among other values", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid+profile+email",
+      { headers: { Cookie: cookie } }
+    );
+    // Should redirect to client with a code, not an error
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBeNull();
+    expect(location.searchParams.get("code")).toBeTruthy();
+  });
+});
