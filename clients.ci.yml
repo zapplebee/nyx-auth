@@ -1,8 +1,8 @@
 clients:
   - name: CI Test Client
     clientId: ci-test
-    # "ci-test-client-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
-    clientSecret: "enc:32Ru3QxCitV6mrNL0oF4DscFKHf/XR1JqESJPuC7s1Vc1mgAeyddX7fuIvNJH0UamQ=="
+    # "ci-test-client-secret" encrypted with NYX_SECRET=Y2ktbnl4LWF1dGgtdGVzdC1zZWNyZXQta2V5LTIwMjY=
+    clientSecret: "enc:Lc8o9mXQpEL34OlmCVhpVPFXAHr2rPTD7YpeNiQ4Ab9DbTBax9QikIfpE3fCcTURgA=="
     type: web
     redirectURLs:
       - http://test-app:5173/callback
@@ -13,8 +13,8 @@ clients:
 
   - name: CI Cookie Test Client
     clientId: ci-cookie-test
-    # "ci-cookie-test-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
-    clientSecret: "enc:WDPESIWA1Z9ZGMEGs5my6Q8efj4E++2owjNspb55gfk9N+boKW+Zhr+Przb4DCMGKA=="
+    # "ci-cookie-test-secret" encrypted with NYX_SECRET=Y2ktbnl4LWF1dGgtdGVzdC1zZWNyZXQta2V5LTIwMjY=
+    clientSecret: "enc:h4MThhgB2sTXxM72Xt++lnQDkvAxSkUt5j5niwEyxXd5FiikTl39GcalKHb9AYD49w=="
     type: web
     redirectURLs:
       - http://cookie-test-app:5174/callback
@@ -25,8 +25,8 @@ clients:
 
   - name: CI Machine Client
     clientId: ci-machine
-    # "ci-machine-secret" encrypted with NYX_SECRET=ci-test-secret-nyx-auth-do-not-use-in-prod
-    clientSecret: "enc:OtzyE4gIagccBTAR7OpFLrvZdN7F2L9Fk/KFps7JQWCIyxZGVwUb/DujkwUT"
+    # "ci-machine-secret" encrypted with NYX_SECRET=Y2ktbnl4LWF1dGgtdGVzdC1zZWNyZXQta2V5LTIwMjY=
+    clientSecret: "enc:jpdWzy3g1MBgBBWP12pI6sjsMPltIhFzDJ0dPas6L63mWyNk37i8vdc+oGaV"
     type: web
     redirectURLs: []
     roles:
