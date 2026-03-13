@@ -11,9 +11,12 @@ export default defineConfig({
     screenshotOnRunFailure: true,
     chromeWebSecurity: false,
     env: {
-      codeCoverageUrl: process.env.CYPRESS_AUTH_URL
-        ? `${process.env.CYPRESS_AUTH_URL}/__coverage__`
-        : "http://localhost:3000/__coverage__",
+      codeCoverage: {
+        url: process.env.CYPRESS_AUTH_URL
+          ? `${process.env.CYPRESS_AUTH_URL}/__coverage__`
+          : "http://localhost:3000/__coverage__",
+        expectBackendCoverageOnly: true,
+      },
     },
     setupNodeEvents(on, config) {
       require("@cypress/code-coverage/task")(on, config);

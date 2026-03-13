@@ -13,9 +13,13 @@ export default defineConfig({
     // (Cypress blocks cross-origin iframe interaction by default)
     chromeWebSecurity: false,
     env: {
-      codeCoverageUrl: process.env.CYPRESS_AUTH_URL
-        ? `${process.env.CYPRESS_AUTH_URL}/__coverage__`
-        : "http://localhost:3000/__coverage__",
+      codeCoverage: {
+        url: process.env.CYPRESS_AUTH_URL
+          ? `${process.env.CYPRESS_AUTH_URL}/__coverage__`
+          : "http://localhost:3000/__coverage__",
+        // Suppress "Did you forget to instrument your app?" — we only have server-side coverage.
+        expectBackendCoverageOnly: true,
+      },
     },
     setupNodeEvents(on, config) {
       require("@cypress/code-coverage/task")(on, config);
