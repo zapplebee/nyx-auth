@@ -9,11 +9,14 @@ Practical patterns for deploying nyx-auth and integrating it with admin panels.
 - [Defining clients](#defining-clients)
 - [Defining users](#defining-users)
 - [TOTP setup](#totp-setup)
+- [Refresh tokens and offline access](#refresh-tokens-and-offline-access)
 - [Connecting a client app](#connecting-a-client-app)
 - [Machine-to-machine tokens (client credentials)](#machine-to-machine-tokens-client-credentials)
 - [End-to-end testing without a browser login](#end-to-end-testing-without-a-browser-login)
 - [Using roles](#using-roles)
 - [Rotating secrets](#rotating-secrets)
+- [Startup validation](#startup-validation)
+- [Validating config before deploy](#validating-config-before-deploy)
 - [Docker deployment](#docker-deployment)
 - [Multi-replica deployment](#multi-replica-deployment)
 - [Environment reference](#environment-reference)
@@ -127,6 +130,56 @@ Set `otpSeed: OPT_OUT` in `users.yml`. The user will log in with password only. 
 ### Rotating a TOTP seed
 
 Run `bun run users:set-totp-seed <email>` with the new seed, restart the service, and re-enroll the user in their authenticator app. The old seed stops working immediately on restart.
+
+---
+
+## Refresh tokens and offline access
+
+nyx-auth only issues a refresh token when the authorization request explicitly includes the `offline_access` scope. This follows [OIDC Core §11](https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess) and prevents clients from receiving long-lived credentials they did not ask for.
+
+### Requesting a refresh token
+
+Include `offline_access` in the `scope` parameter when redirecting to the authorization endpoint:
+
+```
+scope=openid profile email offline_access
+```
+
+The token response will then include a `refresh_token` alongside `access_token` and `id_token`:
+
+```json
+{
+  "access_token": "<jwt>",
+  "id_token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+If `offline_access` is not in the requested scope, no `refresh_token` is returned. The client must redirect the user to log in again when the access token expires.
+
+### Refresh token rotation
+
+Every time a refresh token is used, a new one is returned in the response and the previous one is retired. This limits the window of exposure if a refresh token is leaked — an attacker who uses it will immediately invalidate the legitimate client's token.
+
+### Lifetime
+
+Refresh tokens expire after 30 days. After expiry the user must log in again.
+
+### OIDC library configuration
+
+Most OIDC libraries request `offline_access` automatically when you set a `refreshToken` or `silentRenew` option. Check your library's docs for the exact setting. For `oidc-client-ts`:
+
+```typescript
+const auth = new UserManager({
+  authority: "https://auth.example.com/api/auth",
+  client_id: "admin-panel",
+  redirect_uri: `${window.location.origin}/callback`,
+  scope: "openid profile email offline_access",
+  automaticSilentRenew: true,
+});
+```
 
 ---
 
@@ -600,12 +653,93 @@ The encryption key cannot be rotated without re-encrypting all `enc:` values in 
 
 ---
 
+## Startup validation
+
+nyx-auth validates its environment and config files before serving any requests. If something is wrong it exits immediately with a descriptive message listing every problem at once.
+
+### Environment checks
+
+On startup, nyx-auth checks:
+
+- **`NYX_SECRET`** is set and at least 32 characters long
+- **`NYX_URL`** is set and is a valid URL; when `NODE_ENV=production`, it must use HTTPS
+
+Example output when `NYX_SECRET` is missing and `NYX_URL` is invalid:
+
+```
+[nyx-auth] Startup failed — invalid configuration:
+
+  ✗ NYX_SECRET is not set.
+      NYX_SECRET is the master encryption key for all secrets stored in clients.yml and users.yml.
+      Generate one with: openssl rand -base64 32
+  ✗ NYX_URL is not a valid URL (got: auth.example.com).
+```
+
+### Config checks
+
+After loading `clients.yml` and `users.yml`, nyx-auth validates:
+
+**Clients:**
+- At least one client is defined
+- `clientId` and `name` are non-empty
+- `type` is one of `web`, `native`, `user-agent-based`, or `public`
+- Non-public clients have a `clientSecret` set
+- All `redirectURLs` are well-formed absolute URLs
+
+**Users:**
+- At least one user is defined
+- `email` is a valid email address with no duplicates
+- `name` and `password` are non-empty
+
+Any validation error exits with a non-zero status code and a message pointing to the specific field and the fix.
+
+---
+
+## Validating config before deploy
+
+Use `bun run validate:config` to check `clients.yml` and `users.yml` without starting the server. This is useful as a pre-deploy CI step to catch config errors before they reach production.
+
+```bash
+NYX_SECRET=<your-secret> bun run validate:config
+```
+
+Example success output:
+
+```
+✓ Config is valid (2 client(s), 3 user(s))
+  clients: ./clients.yml
+  users:   ./users.yml
+```
+
+Example failure output:
+
+```
+Config validation failed — 2 error(s):
+
+  ✗ client "admin-panel": redirectURL "admin.example.com/callback" is not a valid URL
+  ✗ user "bob@example.com": password must not be empty — run: bun run users:set-password bob@example.com
+```
+
+### CI integration example
+
+```yaml
+# GitHub Actions
+- name: Validate nyx-auth config
+  run: NYX_SECRET=${{ secrets.NYX_SECRET }} bun run validate:config
+  env:
+    CLIENTS_CONFIG: ./clients.prod.yml
+    USERS_CONFIG: ./users.prod.yml
+```
+
+---
+
 ## Docker deployment
 
 ```dockerfile
 # The image is built from the repo's Dockerfile
 docker run -d \
   --name nyx-auth \
+  -e NODE_ENV=production \
   -e NYX_SECRET=<secret> \
   -e NYX_URL=https://auth.example.com \
   -e TRUSTED_ORIGINS=https://admin.example.com \
@@ -617,6 +751,8 @@ docker run -d \
 
 Config files are mounted read-only. No persistent volume is needed — there is no database.
 
+`NODE_ENV=production` enables the HTTPS check on `NYX_URL` so misconfigured HTTP deployments are caught at startup rather than silently serving insecure tokens.
+
 ### Docker Compose example
 
 ```yaml
@@ -625,6 +761,7 @@ services:
     image: harbor.prettybird.zapplebee.online/library/nyx-auth:latest
     restart: unless-stopped
     environment:
+      NODE_ENV: production
       NYX_SECRET: ${NYX_AUTH_SECRET}
       NYX_URL: https://auth.example.com
       TRUSTED_ORIGINS: https://admin.example.com
@@ -666,9 +803,10 @@ The `kid` field is derived from the JWK. Add one manually if you want predictabl
 | Variable | Required | Description |
 |---|---|---|
 | `NYX_SECRET` | Yes | Master encryption key for all `enc:` values in `clients.yml` and `users.yml`. Must be **at least 32 characters**. Generate with `openssl rand -base64 32`. Never commit this value. |
-| `NYX_URL` | Yes | Public HTTPS URL of this service (e.g. `https://auth.example.com`). Used as the OIDC issuer. HTTP is allowed for `localhost` only. |
-| `TRUSTED_ORIGINS` | No | Comma-separated CORS origins. Defaults to `*` if not set. |
-| `SIGNING_PRIVATE_JWK` | No | JSON-serialized ES256 private key JWK. Generated ephemerally if not set. |
+| `NYX_URL` | Yes | Public URL of this service (e.g. `https://auth.example.com`). Used as the OIDC issuer. Must be HTTPS when `NODE_ENV=production`. |
+| `NODE_ENV` | No | Set to `production` to enforce HTTPS on `NYX_URL`. Recommended for all production deployments. |
+| `TRUSTED_ORIGINS` | No | Comma-separated CORS origins allowed to call `/api/auth/*`. Defaults to `*` if not set. |
+| `SIGNING_PRIVATE_JWK` | No | JSON-serialized ES256 private key JWK. Generated ephemerally if not set. Required for multi-replica deployments. |
 | `CLIENTS_CONFIG` | No | Path to clients YAML. Defaults to `./clients.yml`. |
 | `USERS_CONFIG` | No | Path to users YAML. Defaults to `./users.yml`. |
 | `PORT` | No | HTTP port. Defaults to `3000`. |
