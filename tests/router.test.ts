@@ -340,6 +340,38 @@ describe("client_credentials grant", () => {
     expect((await res.json()).error).toBe("unauthorized_client");
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/33
+  // RFC 6749 §2.3.1: client_id and client_secret are URL-encoded before
+  // base64-encoding in the Basic auth header. The server must URL-decode them.
+  it("Basic auth header with URL-encoded special chars in secret is accepted", async () => {
+    const specialSecret = "sec+ret/with=special&chars%21";
+    const clientWithSpecialSecret: ClientConfig = {
+      name: "Special Client",
+      clientId: "special-client",
+      clientSecret: specialSecret,
+      type: "web",
+      redirectURLs: [],
+      roles: [],
+    };
+    const clients = new Map([...testClients, ["special-client", clientWithSpecialSecret]]);
+    const app = createApp(clients, testUsers);
+
+    // Encode as RFC 6749 §2.3.1 specifies: URL-encode each component, then base64
+    const encoded = Buffer.from(
+      `${encodeURIComponent("special-client")}:${encodeURIComponent(specialSecret)}`
+    ).toString("base64");
+
+    const res = await app.request("/api/auth/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${encoded}`,
+      },
+      body: "grant_type=client_credentials",
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("rejects unsupported grant type", async () => {
     const app = createApp(testClients, testUsers);
     const res = await tokenRequest(app, {
@@ -678,6 +710,114 @@ describe("custom claims via userinfo", () => {
   });
 });
 
+// ── Standard OIDC claims (ref: https://github.com/zapplebee/nyx-auth/issues/10) ─
+
+describe("standard OIDC claims (scope-filtered)", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/10
+  // OIDC Core §5.4 defines scope-to-claims mappings:
+  //   profile → name, preferred_username, given_name, family_name, picture, website
+  //   email   → email, email_verified
+  const userWithStdClaims: UserConfig = {
+    email: "diana@example.com",
+    name: "Diana Prince",
+    password: "diana-password",
+    otpSeed: OTP_OUT,
+    preferred_username: "diana",
+    given_name: "Diana",
+    family_name: "Prince",
+    picture: "https://example.com/diana.jpg",
+    website: "https://diana.example.com",
+    email_verified: true,
+    clients: [{ clientId: "my-app", roles: ["user"] }],
+  };
+
+  const usersWithStdClaims = new Map([...testUsers, ["diana@example.com", userWithStdClaims]]);
+
+  async function getTokens(scope: string) {
+    const app = createApp(testClients, usersWithStdClaims, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "diana@example.com", "diana-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope,
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const tokens = await tokenRes.json();
+    return { app, tokens };
+  }
+
+  it("profile scope includes name, preferred_username, given_name, family_name, picture, website in ID token", async () => {
+    const { tokens } = await getTokens("openid profile");
+    const payload = unsafeDecodePayload(tokens.id_token);
+    expect(payload.name).toBe("Diana Prince");
+    expect(payload.preferred_username).toBe("diana");
+    expect(payload.given_name).toBe("Diana");
+    expect(payload.family_name).toBe("Prince");
+    expect(payload.picture).toBe("https://example.com/diana.jpg");
+    expect(payload.website).toBe("https://diana.example.com");
+  });
+
+  it("email scope includes email_verified in ID token", async () => {
+    const { tokens } = await getTokens("openid email");
+    const payload = unsafeDecodePayload(tokens.id_token);
+    expect(payload.email).toBe("diana@example.com");
+    expect(payload.email_verified).toBe(true);
+  });
+
+  it("profile scope includes standard claims in userinfo response", async () => {
+    const { app, tokens } = await getTokens("openid profile");
+    const res = await app.request("/api/auth/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const body = await res.json();
+    expect(body.name).toBe("Diana Prince");
+    expect(body.preferred_username).toBe("diana");
+    expect(body.given_name).toBe("Diana");
+    expect(body.family_name).toBe("Prince");
+  });
+
+  it("email scope includes email_verified in userinfo response", async () => {
+    const { app, tokens } = await getTokens("openid email");
+    const res = await app.request("/api/auth/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const body = await res.json();
+    expect(body.email).toBe("diana@example.com");
+    expect(body.email_verified).toBe(true);
+  });
+
+  it("standard fields absent from UserConfig are omitted from tokens", async () => {
+    // bob has no preferred_username, given_name etc. — they should not appear
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const code = await getAuthCode(app, cookie, {
+      client_id: "my-app",
+      redirect_uri: "https://app.example.com/callback",
+      response_type: "code",
+      scope: "openid profile email",
+    });
+    const tokenRes = await tokenRequest(app, {
+      grant_type: "authorization_code",
+      client_id: "my-app",
+      client_secret: "app-secret",
+      code,
+      redirect_uri: "https://app.example.com/callback",
+    });
+    const { id_token } = await tokenRes.json();
+    const payload = unsafeDecodePayload(id_token);
+    expect(payload.preferred_username).toBeUndefined();
+    expect(payload.given_name).toBeUndefined();
+    expect(payload.email_verified).toBeUndefined();
+  });
+});
+
 // ── HTTP cache headers (ref: https://github.com/zapplebee/nyx-auth/issues/9) ─
 
 describe("HTTP cache headers on OIDC endpoints", () => {
@@ -707,6 +847,55 @@ describe("HTTP cache headers on OIDC endpoints", () => {
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
   });
 
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/7
+  // The authorize endpoint must echo state in all redirects — this is the
+  // server side of OAuth CSRF protection (RFC 6749 §10.12).
+  it("state is echoed in the authorization code redirect", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid&state=csrf-xyz-123",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("state")).toBe("csrf-xyz-123");
+    expect(location.searchParams.get("code")).toBeTruthy();
+  });
+
+  it("state is echoed in error redirects from the authorize endpoint", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    // Trigger unsupported_response_type error
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=token&scope=openid&state=csrf-xyz-456",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("unsupported_response_type");
+    expect(location.searchParams.get("state")).toBe("csrf-xyz-456");
+  });
+
+  it("state is preserved in the login redirect and returned with the code", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    // No session — authorize redirects to /login with all params including state
+    const authorizeRes = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid&state=csrf-preserving-state"
+    );
+    expect(authorizeRes.status).toBe(302);
+    const loginLocation = authorizeRes.headers.get("Location")!;
+    expect(loginLocation).toContain("state=csrf-preserving-state");
+
+    // Now simulate completing login and re-hitting authorize with the same params
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const qs = loginLocation.split("?")[1];
+    const codeRes = await app.request(`/api/auth/oauth2/authorize?${qs}`, {
+      headers: { Cookie: cookie },
+    });
+    const codeLoc = new URL(codeRes.headers.get("Location")!);
+    expect(codeLoc.searchParams.get("state")).toBe("csrf-preserving-state");
+    expect(codeLoc.searchParams.get("code")).toBeTruthy();
+  });
+
   it("authorization endpoint sets Cache-Control: no-store", async () => {
     const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
     const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
@@ -716,5 +905,95 @@ describe("HTTP cache headers on OIDC endpoints", () => {
     );
     // authorize redirects (302) when session is valid — Cache-Control still set
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+// ── Authorization redirect status codes (ref: https://github.com/zapplebee/nyx-auth/issues/31) ─
+
+describe("authorization endpoint redirect status codes", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/31
+  // HTTP 302 must be used for all authorization-flow redirects so that clients
+  // follow up with a GET, not a repeat POST (which HTTP 307 would require).
+  it("redirects to login with 302 when no session cookie", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid"
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("/login");
+  });
+
+  it("redirects to client with 302 after successful authorization", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("https://app.example.com/callback");
+  });
+
+  it("error redirect uses 302 (not 307)", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=token&scope=openid",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain("error=unsupported_response_type");
+  });
+
+  it("logout redirects to post_logout_redirect_uri with 302", async () => {
+    const app = createApp(testClients, testUsers);
+    const res = await app.request(
+      "/api/auth/oauth2/logout?post_logout_redirect_uri=https://app.example.com/logged-out"
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://app.example.com/logged-out");
+  });
+});
+
+// ── openid scope validation (ref: https://github.com/zapplebee/nyx-auth/issues/23) ─
+
+describe("openid scope requirement", () => {
+  // Ref: https://github.com/zapplebee/nyx-auth/issues/23
+  // OIDC Core §3.1.2.2 requires "openid" in every authorization request scope.
+  it("returns invalid_scope error when openid scope is missing", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=profile+email",
+      { headers: { Cookie: cookie } }
+    );
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+  });
+
+  it("includes state in the invalid_scope error redirect", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=profile&state=csrf-token-abc",
+      { headers: { Cookie: cookie } }
+    );
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+    expect(location.searchParams.get("state")).toBe("csrf-token-abc");
+  });
+
+  it("accepts scope that includes openid among other values", async () => {
+    const app = createApp(testClients, testUsers, { failedLoginDelayMs: DELAY_MS });
+    const cookie = await getSessionCookie(app, "bob@example.com", "bobs-password");
+    const res = await app.request(
+      "/api/auth/oauth2/authorize?client_id=my-app&redirect_uri=https://app.example.com/callback&response_type=code&scope=openid+profile+email",
+      { headers: { Cookie: cookie } }
+    );
+    // Should redirect to client with a code, not an error
+    const location = new URL(res.headers.get("Location")!);
+    expect(location.searchParams.get("error")).toBeNull();
+    expect(location.searchParams.get("code")).toBeTruthy();
   });
 });

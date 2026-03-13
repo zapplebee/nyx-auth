@@ -8,6 +8,7 @@ Practical patterns for deploying nyx-auth and integrating it with admin panels.
 
 - [Defining clients](#defining-clients)
 - [Defining users](#defining-users)
+- [Standard OIDC claims](#standard-oidc-claims)
 - [TOTP setup](#totp-setup)
 - [Refresh tokens and offline access](#refresh-tokens-and-offline-access)
 - [Connecting a client app](#connecting-a-client-app)
@@ -68,6 +69,17 @@ users:
     name: Alice Smith
     password: "enc:..."           # set with: bun run users:set-password alice@example.com
     otpSeed: "enc:..."            # set with: bun run users:set-totp-seed alice@example.com
+
+    # Standard OIDC profile claims (optional — included in tokens when profile scope is requested)
+    preferred_username: alice
+    given_name: Alice
+    family_name: Smith
+    picture: https://example.com/avatars/alice.jpg
+    website: https://alice.example.com
+
+    # Standard OIDC email claim (optional — included when email scope is requested)
+    email_verified: true
+
     clients:
       - clientId: admin-panel
         roles: [admin]
@@ -95,6 +107,67 @@ users:
 Each user entry lists the clients they can access and the roles they hold for each. A user who is not listed under a given `clientId` can still authenticate — they will receive an empty `roles` array in their token.
 
 To prevent a user from accessing a client entirely, do not list them — or enforce access at the client by checking for a required role.
+
+---
+
+## Standard OIDC claims
+
+nyx-auth maps the standard OIDC scopes to user profile fields per [OIDC Core §5.4](https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims). Claims are included in both the ID token and the userinfo endpoint response based on which scopes the client requested.
+
+### Scope-to-claims mapping
+
+| Scope | Claims included |
+|---|---|
+| `openid` | `sub`, `email`, `name` |
+| `profile` | `name`, `preferred_username`, `given_name`, `family_name`, `picture`, `website` |
+| `email` | `email`, `email_verified` |
+
+Only fields that are set in `users.yml` are included. Unset optional fields are omitted entirely — they will not appear as `null` in tokens.
+
+### Configuring user profile fields
+
+Add any of these optional fields to a user entry in `users.yml`:
+
+| Field | Scope | Description |
+|---|---|---|
+| `preferred_username` | profile | Short name or handle (e.g. `alice`) |
+| `given_name` | profile | First name |
+| `family_name` | profile | Last name |
+| `picture` | profile | Absolute URL of a profile photo |
+| `website` | profile | Absolute URL of the user's website |
+| `email_verified` | email | `true` if the email address has been verified |
+
+### Example token claims
+
+Given a user with `preferred_username`, `given_name`, `family_name`, and `email_verified` set, and a client requesting `openid profile email`:
+
+```json
+{
+  "sub": "alice@example.com",
+  "email": "alice@example.com",
+  "email_verified": true,
+  "name": "Alice Smith",
+  "preferred_username": "alice",
+  "given_name": "Alice",
+  "family_name": "Smith",
+  "roles": ["admin"]
+}
+```
+
+### Custom claims
+
+For non-standard claims (e.g. Microsoft Entra's `oid`, `tid`, or custom `groups`), use the `claims` field. These are merged into every token for this user regardless of scope:
+
+```yaml
+users:
+  - email: alice@example.com
+    name: Alice Smith
+    claims:
+      oid: "550e8400-e29b-41d4-a716-446655440000"
+      department: engineering
+```
+
+Standard claims always override any matching key in `claims`.
 
 ---
 
@@ -240,6 +313,36 @@ scopes:          openid profile email
 
 > The `issuer` is the value of `NYX_URL` exactly (e.g. `https://auth.example.com`). Discovery is at `<issuer>/api/auth/.well-known/openid-configuration`.
 
+### Required scope
+
+Every authorization request **must** include `openid` in the `scope` parameter. Requests without it are rejected with an `invalid_scope` error redirect. Standard usage is:
+
+```
+scope=openid profile email
+```
+
+### CSRF protection with the state parameter
+
+The `state` parameter is an OAuth 2.0 security requirement ([RFC 6749 §10.12](https://datatracker.ietf.org/doc/html/rfc6749#section-10.12)). Every authorization request should include a cryptographically random `state` value. Validate that the value returned in the callback matches the one you sent — reject any callback where it is missing or different.
+
+nyx-auth echoes the `state` back unchanged in every redirect (both success and error), so the client can always perform this check.
+
+Most OIDC libraries handle `state` generation and validation automatically. If you are implementing the redirect manually:
+
+```typescript
+// Generate and store state before redirecting
+const state = crypto.randomBytes(16).toString("hex");
+session.oauthState = state;
+
+// Include it in the authorize redirect
+params.set("state", state);
+
+// In the callback, validate it before exchanging the code
+if (req.query.state !== session.oauthState) {
+  return res.status(400).send("Invalid state — possible CSRF attack");
+}
+```
+
 ---
 
 ## Machine-to-machine tokens (client credentials)
@@ -284,6 +387,8 @@ curl -X POST https://auth.example.com/api/auth/oauth2/token \
   -d grant_type=client_credentials \
   -d scope=deploy
 ```
+
+> **Note on Basic auth encoding ([RFC 6749 §2.3.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1)):** If `client_id` or `client_secret` contain special characters (e.g. `+`, `=`, `&`, `%`), URL-encode each component before base64-encoding the `client_id:client_secret` pair. nyx-auth URL-decodes both components after base64-decoding, so compliant clients using this encoding will authenticate correctly. `curl -u` handles this automatically; if you are constructing the header manually, apply `encodeURIComponent()` to both values before concatenating them.
 
 Response:
 

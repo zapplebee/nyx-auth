@@ -23,6 +23,7 @@ import {
   issuePendingTotpToken,
   verifyPendingTotpToken,
   safeEqual,
+  scopeFilteredClaims,
 } from "./tokens";
 import { loginHtml, consentHtml } from "./pages";
 import { requiresTotp } from "./users";
@@ -123,26 +124,33 @@ export function createApp(
     if (!client.redirectURLs.includes(redirectUri)) return c.text("Invalid redirect_uri", 400);
     if (responseType !== "code") return redirectError(redirectUri, state, "unsupported_response_type");
 
+    // OIDC Core §3.1.2.2: every authorization request must include "openid" in scope.
+    // Reject early so clients get a clear error rather than a token that may not
+    // meet OIDC expectations.
+    if (!scope.split(" ").includes("openid")) {
+      return redirectError(redirectUri, state, "invalid_scope");
+    }
+
     const sessionCookie = getCookie(c, "nyx_session");
     const email = await verifySessionToken(sessionCookie ?? "");
 
     if (!email) {
       const qs = new URLSearchParams(params).toString();
-      return c.redirect(`/login?${qs}`);
+      return c.redirect(`/login?${qs}`, 302);
     }
 
     const user = users.get(email);
     if (!user) {
       deleteCookie(c, "nyx_session");
       const qs = new URLSearchParams(params).toString();
-      return c.redirect(`/login?${qs}`);
+      return c.redirect(`/login?${qs}`, 302);
     }
 
     if (!client.skipConsent) {
       const consentGranted = params.consent_granted === "1";
       if (!consentGranted) {
         const qs = new URLSearchParams({ ...params, _email: email }).toString();
-        return c.redirect(`/consent?${qs}`);
+        return c.redirect(`/consent?${qs}`, 302);
       }
     }
 
@@ -158,7 +166,7 @@ export function createApp(
     const dest = new URL(redirectUri);
     dest.searchParams.set("code", code);
     if (state) dest.searchParams.set("state", state);
-    return c.redirect(dest.toString());
+    return c.redirect(dest.toString(), 302);
   });
 
   // ── Login endpoint ─────────────────────────────────────────────────────────
@@ -241,10 +249,12 @@ export function createApp(
 
     const authHeader = c.req.header("Authorization") ?? "";
     if (authHeader.startsWith("Basic ")) {
+      // RFC 6749 §2.3.1: client_id and client_secret must be URL-decoded after
+      // base64-decoding because compliant clients URL-encode them before encoding.
       const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
       const sep = decoded.indexOf(":");
-      clientId ??= decoded.slice(0, sep);
-      clientSecret ??= decoded.slice(sep + 1);
+      clientId ??= decodeURIComponent(decoded.slice(0, sep));
+      clientSecret ??= decodeURIComponent(decoded.slice(sep + 1));
     }
 
     const client = clients.get(clientId ?? "");
@@ -299,7 +309,7 @@ export function createApp(
 
       // Rotate: issue a fresh refresh token alongside new access + id tokens.
       const [idToken, accessToken, refreshToken] = await Promise.all([
-        issueIdToken(user, client, undefined),
+        issueIdToken(user, client, undefined, rtPayload.scope),
         issueAccessToken(user, client, rtPayload.scope),
         issueRefreshToken(user, client, rtPayload.scope),
       ]);
@@ -353,7 +363,7 @@ export function createApp(
     const wantsRefresh = payload.scope.split(" ").includes("offline_access");
 
     const [idToken, accessToken, refreshToken] = await Promise.all([
-      issueIdToken(user, client, payload.nonce),
+      issueIdToken(user, client, payload.nonce, payload.scope),
       issueAccessToken(user, client, payload.scope),
       wantsRefresh ? issueRefreshToken(user, client, payload.scope) : Promise.resolve(undefined),
     ]);
@@ -384,7 +394,12 @@ export function createApp(
     const user = users.get(payload.sub as string);
     if (!user) return c.json({ error: "invalid_token" }, 401);
 
-    return c.json({ ...(user.claims ?? {}), sub: user.email, email: user.email, name: user.name });
+    const scope = (payload.scope as string | undefined) ?? "openid";
+    return c.json({
+      ...(user.claims ?? {}),
+      ...scopeFilteredClaims(user, scope),
+      sub: user.email,
+    });
   });
 
   // ── RP-initiated logout (end_session_endpoint) ────────────────────────────
@@ -396,7 +411,7 @@ export function createApp(
     if (postLogoutUri) {
       const dest = new URL(postLogoutUri);
       if (state) dest.searchParams.set("state", state);
-      return c.redirect(dest.toString());
+      return c.redirect(dest.toString(), 302);
     }
     return c.html("<html><body><p>Logged out.</p></body></html>");
   });
@@ -422,7 +437,7 @@ export function createApp(
     const params = new URLSearchParams(qs);
     params.set("consent_granted", "1");
     params.delete("_email");
-    return c.redirect(`/api/auth/oauth2/authorize?${params.toString()}`);
+    return c.redirect(`/api/auth/oauth2/authorize?${params.toString()}`, 302);
   });
 
   // ── Coverage endpoints (only active when COVERAGE=1) ──────────────────────
