@@ -44,9 +44,9 @@ bun install
 
 ```env
 # Master encryption key — used to decrypt all enc:... values in clients.yml / users.yml.
-# Must be at least 32 characters. Never commit this to source control.
+# Must be a base64-encoded value that decodes to exactly 32 bytes.
 # Generate with: openssl rand -base64 32
-NYX_SECRET=<random 32+ char string>
+NYX_SECRET=<output of: openssl rand -base64 32>
 
 # Public URL of this service — used as the OIDC issuer claim.
 # HTTP is accepted unless NODE_ENV=production, which enforces HTTPS.
