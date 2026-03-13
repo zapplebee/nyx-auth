@@ -102,6 +102,7 @@ All under `/api/auth/`:
 | `bun run clients:set-secret <clientId>` | Encrypt and store a client secret |
 | `bun run users:set-password <email>` | Encrypt and store a user password |
 | `bun run users:set-totp-seed <email>` | Encrypt and store a TOTP seed |
+| `bun run validate:config` | Validate `clients.yml` and `users.yml` without starting the server |
 
 ## Deployment
 

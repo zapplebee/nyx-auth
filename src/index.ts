@@ -6,9 +6,20 @@
 import { loadClients } from "./clients";
 import { loadUsers } from "./users";
 import { createApp } from "./router";
+import { validateConfig } from "./validate";
 
 const clients = await loadClients();
 const users = await loadUsers();
+
+const configErrors = validateConfig(clients, users);
+if (configErrors.length > 0) {
+  console.error("[nyx-auth] Startup failed — invalid configuration:\n");
+  for (const err of configErrors) {
+    console.error("  ✗ " + err);
+  }
+  console.error();
+  process.exit(1);
+}
 
 const issuer = process.env.NYX_URL!;
 console.log(`[nyx-auth] Loaded ${clients.size} client(s), ${users.size} user(s). Issuer: ${issuer}`);
